@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}Grades & Enrollments{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+    <h1>Grades & Enrollments</h1>
+    <p>Manage course enrollments and assign grades</p>
+</div>
+
+<!-- Filter Bar -->
+<div class="filter-bar">
+    <label>Academic Period</label>
+    <form method="GET" action="/grades" style="display:flex; gap:10px; align-items:center;">
+        <select name="year_id" onchange="this.form.submit()">
+            {% for year in years %}
+            <option value="{{ year['year_id'] }}"
+                {% if year['year_id'] == selected_year_id %}selected{% endif %}>
+                {{ year['year_name'] }}
+            </option>
+            {% endfor %}
+        </select>
+        <select name="semester_id" onchange="this.form.submit()">
+            {% for semester in semesters %}
+            <option value="{{ semester['semester_id'] }}"
+                {% if semester['semester_id'] == selected_semester_id %}selected{% endif %}>
+                {{ semester['semester_name'] }}
+            </option>
+            {% endfor %}
+        </select>
+    </form>
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+{% if success %}
+<div class="alert alert-success">{{ success }}</div>
+{% endif %}
+
+<!-- Two column layout for forms -->
+<div class="two-col" style="margin-bottom:25px;">
+
+    <!-- Enroll Student -->
+    <div class="card">
+        <h2>Enroll a Student</h2>
+        <form method="POST" action="/grades?year_id={{ selected_year_id }}&semester_id={{ selected_semester_id }}">
+            <input type="hidden" name="action" value="enroll">
+
+            <div class="form-group">
+                <label>Student</label>
+                <select name="student_id" required>
+                    <option value="">Select student</option>
+                    {% for student in all_students %}
+                    <option value="{{ student['student_id'] }}">
+                        {{ student['full_name'] }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Course</label>
+                <select name="course_id" required>
+                    <option value="">Select course</option>
+                    {% for course in all_courses %}
+                    <option value="{{ course['course_id'] }}">
+                        {{ course['course_name'] }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Enroll Student</button>
+        </form>
+    </div>
+
+    <!-- Update Grade -->
+    <div class="card">
+        <h2>Assign / Update Grade</h2>
+        <form method="POST" action="/grades?year_id={{ selected_year_id }}&semester_id={{ selected_semester_id }}">
+            <input type="hidden" name="action" value="update_grade">
+
+            <div class="form-group">
+                <label>Enrollment</label>
+                <select name="enrollment_id" required>
+                    <option value="">Select enrollment</option>
+                    {% for e in enrollments %}
+                    <option value="{{ e['enrollment_id'] }}">
+                        {{ e['student_name'] }} — {{ e['course_name'] }} 
+                        ({{ e['final_grade'] }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>New Grade</label>
+                <select name="new_grade" required>
+                    <option value="">Select grade</option>
+                    <option value="S">S — Superior (4.0)</option>
+                    <option value="A">A — Excellent (3.5)</option>
+                    <option value="B">B — Good (3.0)</option>
+                    <option value="C">C — Average (2.0)</option>
+                    <option value="D">D — Below Average (1.0)</option>
+                    <option value="F">F — Fail (0.0)</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Update Grade</button>
+        </form>
+    </div>
+
+</div>
+
+<!-- Enrollments Table -->
+<div class="card">
+    <h2>Current Enrollments</h2>
+    {% if enrollments %}
+    <table>
+        <thead>
+            <tr>
+                <th>Student</th>
+                <th>Grade Level</th>
+                <th>Course</th>
+                <th>Enrolled On</th>
+                <th>Grade</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for e in enrollments %}
+            <tr>
+                <td><strong>{{ e['student_name'] }}</strong></td>
+                <td>Grade {{ e['grade_level'] }}</td>
+                <td>{{ e['course_name'] }}</td>
+                <td>{{ e['enrollment_date'] }}</td>
+                <td>
+                    {% if e['final_grade'] != 'Not graded' %}
+                    <span class="grade-badge">{{ e['final_grade'] }}</span>
+                    {% else %}
+                    <span style="color:#bbb; font-size:13px;">Not graded</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">No enrollments found for this semester.</div>
+    {% endif %}
+</div>
+
+{% endblock %}

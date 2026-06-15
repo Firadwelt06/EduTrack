@@ -343,5 +343,133 @@ def add_student():
 
     return render_template("add_student.html", error=error, success=success)
 
+# Grades
+@app.route("/grades", methods=["GET", "POST"])
+def grades():
+    conn = get_conn()
+    cursor = conn.cursor(dictionary=True, buffered=True)
+
+    error = None
+    success = None
+
+    # Get semester filter from URL
+    selected_year_id = request.args.get("year_id", type=int)
+    selected_semester_id = request.args.get("semester_id", type=int)
+
+    # Get all years
+    cursor.execute("SELECT year_id, year_name FROM academic_years ORDER BY year_name DESC")
+    years = cursor.fetchall()
+
+    # Default to current year
+    if not selected_year_id and years:
+        cursor.execute("SELECT year_id FROM academic_years WHERE is_current = 1 LIMIT 1")
+        current_year = cursor.fetchone()
+        selected_year_id = current_year["year_id"] if current_year else years[0]["year_id"]
+
+    # Get semesters
+    semesters = []
+    if selected_year_id:
+        cursor.execute("""
+            SELECT semester_id, semester_name 
+            FROM semesters 
+            WHERE year_id = %s 
+            ORDER BY semester_order
+        """, (selected_year_id,))
+        semesters = cursor.fetchall()
+
+    if not selected_semester_id and semesters:
+        selected_semester_id = semesters[0]["semester_id"]
+
+    # Handle form submissions
+    if request.method == "POST":
+        action = request.form.get("action")
+
+        # Enroll student
+        if action == "enroll":
+            student_id = request.form.get("student_id")
+            course_id = request.form.get("course_id")
+
+            if not all([student_id, course_id, selected_semester_id]):
+                error = "Please select a student, course, and semester."
+            else:
+                try:
+                    cursor.execute("""
+                        INSERT INTO enrollments 
+                        (student_id, course_id, semester_id, academic_year_id)
+                        VALUES (%s, %s, %s, %s)
+                    """, (student_id, course_id, selected_semester_id, selected_year_id))
+                    conn.commit()
+                    success = "Student enrolled successfully."
+                except mysql.connector.IntegrityError:
+                    error = "This student is already enrolled in that course."
+                except mysql.connector.Error as e:
+                    error = f"Database error: {str(e)}"
+
+        # Update grade
+        elif action == "update_grade":
+            enrollment_id = request.form.get("enrollment_id")
+            new_grade = request.form.get("new_grade")
+
+            if not all([enrollment_id, new_grade]):
+                error = "Please select an enrollment and a grade."
+            else:
+                try:
+                    cursor.execute("""
+                        UPDATE enrollments 
+                        SET final_grade = %s 
+                        WHERE enrollment_id = %s
+                    """, (new_grade, enrollment_id))
+                    conn.commit()
+                    success = f"Grade updated to {new_grade} successfully."
+                except mysql.connector.Error as e:
+                    error = f"Database error: {str(e)}"
+
+    # Get all enrollments for selected semester
+    enrollments = []
+    if selected_semester_id:
+        cursor.execute("""
+            SELECT 
+                e.enrollment_id,
+                CONCAT(s.first_name, ' ', COALESCE(s.middle_name, ''), ' ', s.last_name) AS student_name,
+                s.grade_level,
+                c.course_name,
+                DATE(e.enrollment_date) AS enrollment_date,
+                COALESCE(e.final_grade, 'Not graded') AS final_grade
+            FROM enrollments e
+            JOIN students s ON e.student_id = s.student_id
+            JOIN courses c ON e.course_id = c.course_id
+            WHERE e.semester_id = %s
+            ORDER BY s.last_name, c.course_name
+        """, (selected_semester_id,))
+        enrollments = cursor.fetchall()
+
+    # Get all students for enroll dropdown
+    cursor.execute("""
+        SELECT student_id, 
+               CONCAT(first_name, ' ', last_name) AS full_name 
+        FROM students 
+        ORDER BY last_name
+    """)
+    all_students = cursor.fetchall()
+
+    # Get all courses for enroll dropdown
+    cursor.execute("SELECT course_id, course_name FROM courses ORDER BY course_name")
+    all_courses = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return render_template("grades.html",
+        years=years,
+        semesters=semesters,
+        selected_year_id=selected_year_id,
+        selected_semester_id=selected_semester_id,
+        enrollments=enrollments,
+        all_students=all_students,
+        all_courses=all_courses,
+        error=error,
+        success=success
+    )
+
 if __name__ == '__main__':
     app.run(debug=True)
