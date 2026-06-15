@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login — SchoolDB</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .login-box {
+            background: #fff;
+            border-radius: 16px;
+            padding: 45px 40px;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+        }
+
+        .login-logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .login-logo h1 {
+            font-size: 28px;
+            color: #1a1a2e;
+            font-weight: 700;
+        }
+
+        .login-logo p {
+            color: #888;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .form-group {
+            margin-bottom: 18px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 6px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 11px 14px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            transition: border 0.2s;
+        }
+
+        .form-group input:focus {
+            border-color: #e94560;
+        }
+
+        .btn-login {
+            width: 100%;
+            padding: 12px;
+            background-color: #e94560;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 8px;
+            transition: opacity 0.2s;
+        }
+
+        .btn-login:hover { opacity: 0.88; }
+
+        .alert-error {
+            background: #fdecea;
+            color: #e74c3c;
+            padding: 11px 15px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 18px;
+        }
+
+        .divider {
+            border: none;
+            border-top: 1px solid #f0f0f0;
+            margin: 25px 0;
+        }
+
+        .footer-note {
+            text-align: center;
+            font-size: 12px;
+            color: #bbb;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <div class="login-logo">
+            <h1>🏫 SchoolDB</h1>
+            <p>Sign in to your account</p>
+        </div>
+
+        {% if error %}
+        <div class="alert-error">{{ error }}</div>
+        {% endif %}
+
+        <form method="POST">
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" name="username" placeholder="Enter username" required autofocus>
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" name="password" placeholder="Enter password" required>
+            </div>
+            <button type="submit" class="btn-login">Sign In</button>
+        </form>
+
+        <hr class="divider">
+        <p class="footer-note">School Database Management System</p>
+    </div>
+</body>
+</html>

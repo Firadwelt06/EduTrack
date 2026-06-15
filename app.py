@@ -1,4 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+import hashlib
 from dotenv import load_dotenv
 import mysql.connector
 import os
@@ -6,6 +9,32 @@ import os
 load_dotenv()
 
 app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY")
+
+# Initialize Flask-Login
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = "login"
+login_manager.login_message = "Please log in to access this page."
+
+# Login manager user class
+class User(UserMixin):
+    def __init__(self, user_id, username, role):
+        self.id = user_id
+        self.username = username
+        self.role = role
+
+@login_manager.user_loader
+def load_user(user_id):
+    conn = get_conn()
+    cursor = conn.cursor(dictionary=True, buffered=True)
+    cursor.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    if user:
+        return User(user["user_id"], user["username"], user["role"])
+    return None
 
 # Connect to MySQL database
 def get_conn():
@@ -18,7 +47,44 @@ def get_conn():
     )
 
 # Routes
+# Login and Logout
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        username = request.form["username"].strip()
+        password = request.form["password"].strip()
+
+        conn = get_conn()
+        cursor = conn.cursor(dictionary=True, buffered=True)
+        cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+        user = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if user:
+            # Check password against SHA2 hash
+            password_hash = hashlib.sha256(password.encode()).hexdigest()
+            if password_hash == user["password_hash"]:
+                login_user(User(user["user_id"], user["username"], user["role"]))
+                return redirect(url_for("dashboard"))
+            else:
+                error = "Incorrect password."
+        else:
+            error = "Username not found."
+
+    return render_template("login.html", error=error)
+
+
+@app.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for("login"))
+
+# Dashboard
 @app.route("/")
+@login_required
 def dashboard():
     conn = get_conn()
     cursor = conn.cursor(dictionary=True)
@@ -152,6 +218,7 @@ def dashboard():
 
 # Students
 @app.route("/students")
+@login_required
 def students():
     conn = get_conn()
     cursor = conn.cursor(dictionary=True)
@@ -221,6 +288,7 @@ def students():
 
 # Student Detail
 @app.route("/students/<int:student_id>")
+@login_required
 def student_detail(student_id):
     conn = get_conn()
     cursor = conn.cursor(dictionary=True)
@@ -308,6 +376,7 @@ def student_detail(student_id):
 
 # Add Student
 @app.route("/add-student", methods=["GET", "POST"])
+@login_required
 def add_student():
     error = None
     success = None
@@ -345,6 +414,7 @@ def add_student():
 
 # Grades
 @app.route("/grades", methods=["GET", "POST"])
+@login_required
 def grades():
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
@@ -473,6 +543,7 @@ def grades():
 
 # Courses
 @app.route("/courses")
+@login_required
 def courses():
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
@@ -534,6 +605,7 @@ def courses():
 
 # Course Detail
 @app.route("/courses/<int:course_id>")
+@login_required
 def course_detail(course_id):
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
