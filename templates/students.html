@@ -3,17 +3,70 @@
 {% block title %}Students{% endblock %}
 
 {% block content %}
-<h1>Students</h1>
-<table>
-    <tr>
-        <th>Name</th>
-        <th>Grade Level</th>
-    </tr>
-    {% for student in students %}
-    <tr>
-        <td>{{ student['first_name'] }} {{ student['last_name'] }}</td>
-        <td>{{ student['grade_level'] }}</td>
-    </tr>
-    {% endfor %}
-</table>
+
+<div class="page-header">
+    <h1>Students</h1>
+    <p>All enrolled students</p>
+</div>
+
+<!-- Filter Bar -->
+<div class="filter-bar">
+    <label>Academic Period</label>
+    <form method="GET" action="/students" style="display:flex; gap:10px; align-items:center;">
+        <select name="year_id" onchange="this.form.submit()">
+            {% for year in years %}
+            <option value="{{ year['year_id'] }}"
+                {% if year['year_id'] == selected_year_id %}selected{% endif %}>
+                {{ year['year_name'] }}
+            </option>
+            {% endfor %}
+        </select>
+        <select name="semester_id" onchange="this.form.submit()">
+            {% for semester in semesters %}
+            <option value="{{ semester['semester_id'] }}"
+                {% if semester['semester_id'] == selected_semester_id %}selected{% endif %}>
+                {{ semester['semester_name'] }}
+            </option>
+            {% endfor %}
+        </select>
+        <a href="/add-student" class="btn btn-primary">+ Add Student</a>
+    </form>
+</div>
+
+<!-- Students Table -->
+<div class="card">
+    <h2>All Students</h2>
+    {% if students %}
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Grade Level</th>
+                <th>Courses This Semester</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for student in students %}
+            <tr>
+                <td><strong>{{ student['full_name'] }}</strong></td>
+                <td>{{ student['email'] }}</td>
+                <td>Grade {{ student['grade_level'] }}</td>
+                <td>{{ student['course_count'] }}</td>
+                <td>
+                    <a href="/students/{{ student['student_id'] }}?year_id={{ selected_year_id }}&semester_id={{ selected_semester_id }}" 
+                       class="btn btn-primary" style="padding: 5px 12px; font-size:12px;">
+                        View
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">No students found. Add one to get started.</div>
+    {% endif %}
+</div>
+
 {% endblock %}

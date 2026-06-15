@@ -155,11 +155,148 @@ def dashboard():
 def students():
     conn = get_conn()
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT student_id, first_name, last_name, grade_level FROM students ORDER BY last_name")
+    
+    # Get semester filter from URL
+    selected_year_id = request.args.get("year_id", type=int)
+    selected_semester_id = request.args.get("semester_id", type=int)
+
+    # Get all years
+    cursor.execute("SELECT year_id, year_name FROM academic_years ORDER BY year_name DESC")
+    years = cursor.fetchall()
+
+    # Default to current year
+    if not selected_year_id and years:
+        cursor.execute("SELECT year_id FROM academic_years WHERE is_current = 1 LIMIT 1")
+        current_year = cursor.fetchone()
+        selected_year_id = current_year["year_id"] if current_year else years[0]["year_id"]
+
+    # Get semesters
+    semesters = []
+    if selected_year_id:
+        cursor.execute("""
+            SELECT semester_id, semester_name 
+            FROM semesters 
+            WHERE year_id = %s 
+            ORDER BY semester_order
+        """, (selected_year_id,))
+        semesters = cursor.fetchall()
+
+    if not selected_semester_id and semesters:
+        selected_semester_id = semesters[0]["semester_id"]
+
+    # Get all students with enrollment count for selected semester
+    cursor.execute("""
+        SELECT 
+            s.student_id,
+            CONCAT(s.first_name, ' ', COALESCE(s.middle_name, ''), ' ', s.last_name) AS full_name,
+            s.email,
+            s.grade_level,
+            COUNT(e.enrollment_id) as course_count
+        FROM students s
+        LEFT JOIN enrollments e ON s.student_id = e.student_id 
+            AND e.semester_id = %s
+        GROUP BY s.student_id
+        ORDER BY s.last_name
+    """, (selected_semester_id,))
     students = cursor.fetchall()
+
     cursor.close()
     conn.close()
-    return render_template("students.html", students=students)
+
+    return render_template("students.html",
+        students=students,
+        years=years,
+        semesters=semesters,
+        selected_year_id=selected_year_id,
+        selected_semester_id=selected_semester_id
+    )
+
+
+@app.route("/students/<int:student_id>")
+def student_detail(student_id):
+    conn = get_conn()
+    cursor = conn.cursor(dictionary=True)
+
+    selected_year_id = request.args.get("year_id", type=int)
+    selected_semester_id = request.args.get("semester_id", type=int)
+
+    # Get all years
+    cursor.execute("SELECT year_id, year_name FROM academic_years ORDER BY year_name DESC")
+    years = cursor.fetchall()
+
+    if not selected_year_id and years:
+        cursor.execute("SELECT year_id FROM academic_years WHERE is_current = 1 LIMIT 1")
+        current_year = cursor.fetchone()
+        selected_year_id = current_year["year_id"] if current_year else years[0]["year_id"]
+
+    semesters = []
+    if selected_year_id:
+        cursor.execute("""
+            SELECT semester_id, semester_name 
+            FROM semesters WHERE year_id = %s 
+            ORDER BY semester_order
+        """, (selected_year_id,))
+        semesters = cursor.fetchall()
+
+    if not selected_semester_id and semesters:
+        selected_semester_id = semesters[0]["semester_id"]
+
+    # Get student info
+    cursor.execute("""
+        SELECT first_name, middle_name, last_name, 
+               email, grade_level, enrollment_date
+        FROM students WHERE student_id = %s
+    """, (student_id,))
+    student = cursor.fetchone()
+
+    if not student:
+        cursor.close()
+        conn.close()
+        return redirect(url_for("students"))
+
+    # Build full name
+    middle = f" {student['middle_name']} " if student['middle_name'] else " "
+    student['full_name'] = f"{student['first_name']}{middle}{student['last_name']}"
+
+    # Get grades for selected semester
+    grades = []
+    gpa = None
+    if selected_semester_id:
+        cursor.execute("""
+            SELECT 
+                c.course_name,
+                COALESCE(e.final_grade, 'Not graded') AS final_grade,
+                DATE(e.enrollment_date) AS enrolled_date,
+                sem.semester_name,
+                ay.year_name
+            FROM enrollments e
+            JOIN courses c ON e.course_id = c.course_id
+            JOIN semesters sem ON e.semester_id = sem.semester_id
+            JOIN academic_years ay ON e.academic_year_id = ay.year_id
+            WHERE e.student_id = %s
+            AND e.semester_id = %s
+            ORDER BY c.course_name
+        """, (student_id, selected_semester_id))
+        grades = cursor.fetchall()
+
+        # Calculate GPA
+        grade_points = {'S': 4.0, 'A': 3.5, 'B': 3.0, 'C': 2.0, 'D': 1.0, 'F': 0.0}
+        points = [grade_points[g['final_grade']] for g in grades if g['final_grade'] in grade_points]
+        if points:
+            gpa = round(sum(points) / len(points), 2)
+
+    cursor.close()
+    conn.close()
+
+    return render_template("student_detail.html",
+        student=student,
+        grades=grades,
+        gpa=gpa,
+        years=years,
+        semesters=semesters,
+        selected_year_id=selected_year_id,
+        selected_semester_id=selected_semester_id
+    )
 
 # Add Student
 @app.route("/add-student", methods=["GET", "POST"])
