@@ -131,16 +131,26 @@
                     {% endif %}
                 </td>
                 <td>
-                    {% if not year['is_current'] %}
-                    <form method="POST" action="/settings?tab=academic" style="display:inline;">
-                        <input type="hidden" name="action" value="set_current_year">
-                        <input type="hidden" name="year_id" value="{{ year['year_id'] }}">
-                        <button type="submit" class="btn btn-primary"
-                                style="padding:4px 12px; font-size:12px;">
-                            Set Current
-                        </button>
-                    </form>
-                    {% endif %}
+                    <div style="display:flex; gap:8px;">
+                        {% if not year['is_current'] %}
+                        <form method="POST" action="/settings?tab=academic" style="display:inline;">
+                            <input type="hidden" name="action" value="set_current_year">
+                            <input type="hidden" name="year_id" value="{{ year['year_id'] }}">
+                            <button type="submit" class="btn btn-primary"
+                                    style="padding:4px 12px; font-size:12px;">
+                                Set Current
+                            </button>
+                        </form>
+                        <form method="POST" 
+                              action="/settings/delete/year/{{ year['year_id'] }}"
+                              onsubmit="return confirm('Delete this academic year? This cannot be undone.')">
+                            <button type="submit" class="btn"
+                                    style="padding:4px 12px; font-size:12px; background:#fdecea; color:#e74c3c;">
+                                Delete
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
                 </td>
             </tr>
             {% endfor %}
@@ -157,20 +167,31 @@
     {% if semesters %}
     <table>
         <thead>
-            <tr>
-                <th>Academic Year</th>
-                <th>Semester</th>
-                <th>Order</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for sem in semesters %}
-            <tr>
-                <td>{{ sem['year_name'] }}</td>
-                <td>{{ sem['semester_name'] }}</td>
-                <td>{{ sem['semester_order'] }}</td>
-            </tr>
-            {% endfor %}
+                <tr>
+                    <th>Academic Year</th>
+                    <th>Semester</th>
+                    <th>Order</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sem in semesters %}
+                <tr>
+                    <td>{{ sem['year_name'] }}</td>
+                    <td>{{ sem['semester_name'] }}</td>
+                    <td>{{ sem['semester_order'] }}</td>
+                    <td>
+                        <form method="POST"
+                              action="/settings/delete/semester/{{ sem['semester_id'] }}"
+                              onsubmit="return confirm('Delete this semester? This cannot be undone.')">
+                            <button type="submit" class="btn"
+                                    style="padding:4px 12px; font-size:12px; background:#fdecea; color:#e74c3c;">
+                                Delete
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
         </tbody>
     </table>
     {% else %}
@@ -223,16 +244,27 @@
                 <th>Name</th>
                 <th>Email</th>
                 <th>Hire Date</th>
+                <th>Action</th>
             </tr>
         </thead>
         <tbody>
-            {% for teacher in teachers %}
-            <tr>
-                <td><strong>{{ teacher['first_name'] }} {{ teacher['last_name'] }}</strong></td>
-                <td>{{ teacher['email'] }}</td>
-                <td>{{ teacher['hire_date'] }}</td>
-            </tr>
-            {% endfor %}
+                {% for teacher in teachers %}
+                <tr>
+                    <td><strong>{{ teacher['first_name'] }} {{ teacher['last_name'] }}</strong></td>
+                    <td>{{ teacher['email'] }}</td>
+                    <td>{{ teacher['hire_date'] }}</td>
+                    <td>
+                        <form method="POST"
+                              action="/settings/delete/teacher/{{ teacher['teacher_id'] }}"
+                              onsubmit="return confirm('Delete this teacher? This cannot be undone.')">
+                            <button type="submit" class="btn"
+                                    style="padding:4px 12px; font-size:12px; background:#fdecea; color:#e74c3c;">
+                                Delete
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
         </tbody>
     </table>
     {% else %}
@@ -293,14 +325,24 @@
             </tr>
         </thead>
         <tbody>
-            {% for course in courses %}
-            <tr>
-                <td><strong>{{ course['course_name'] }}</strong></td>
-                <td>{{ course['description'] or '—' }}</td>
-                <td>{{ course['capacity'] }}</td>
-                <td>{{ course['teacher'] }}</td>
-            </tr>
-            {% endfor %}
+                {% for course in courses %}
+                <tr>
+                    <td><strong>{{ course['course_name'] }}</strong></td>
+                    <td>{{ course['description'] or '—' }}</td>
+                    <td>{{ course['capacity'] }}</td>
+                    <td>{{ course['teacher'] }}</td>
+                    <td>
+                        <form method="POST"
+                              action="/settings/delete/course/{{ course['course_id'] }}"
+                              onsubmit="return confirm('Delete this course? This cannot be undone.')">
+                            <button type="submit" class="btn"
+                                    style="padding:4px 12px; font-size:12px; background:#fdecea; color:#e74c3c;">
+                                Delete
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
         </tbody>
     </table>
     {% else %}

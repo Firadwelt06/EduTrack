@@ -707,8 +707,8 @@ def settings():
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
 
-    error = None
-    success = None
+    error = request.args.get("error", None)
+    success = request.args.get("success", None)
     active_tab = request.args.get("tab", "academic")
 
     # ── ACADEMIC YEARS & SEMESTERS ──
@@ -878,6 +878,126 @@ def settings():
         error=error,
         success=success
     )
+
+# Delete routes
+@app.route("/settings/delete/year/<int:year_id>", methods=["POST"])
+@login_required
+def delete_year(year_id):
+    conn = get_conn()
+    cursor = conn.cursor(dictionary=True, buffered=True)
+    try:
+        # Check if year has semesters
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM semesters WHERE year_id = %s",
+            (year_id,)
+        )
+        count = cursor.fetchone()["count"]
+        if count > 0:
+            # Delete will cascade to semesters but check enrollments first
+            cursor.execute("""
+                SELECT COUNT(*) as count FROM enrollments e
+                JOIN semesters s ON e.semester_id = s.semester_id
+                WHERE s.year_id = %s
+            """, (year_id,))
+            enrollment_count = cursor.fetchone()["count"]
+            if enrollment_count > 0:
+                return redirect(url_for("settings", tab="academic",
+                    error="Cannot delete this year. It has active enrollments attached to it."))
+
+        cursor.execute("DELETE FROM academic_years WHERE year_id = %s", (year_id,))
+        conn.commit()
+    except mysql.connector.Error as e:
+        return redirect(url_for("settings", tab="academic",
+            error=f"Database error: {str(e)}"))
+    finally:
+        cursor.close()
+        conn.close()
+    return redirect(url_for("settings", tab="academic",
+        success="Academic year deleted successfully."))
+
+
+@app.route("/settings/delete/semester/<int:semester_id>", methods=["POST"])
+@login_required
+def delete_semester(semester_id):
+    conn = get_conn()
+    cursor = conn.cursor(dictionary=True, buffered=True)
+    try:
+        # Check if semester has enrollments
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM enrollments WHERE semester_id = %s",
+            (semester_id,)
+        )
+        count = cursor.fetchone()["count"]
+        if count > 0:
+            return redirect(url_for("settings", tab="academic",
+                error=f"Cannot delete this semester. It has {count} enrollment(s) attached to it."))
+
+        cursor.execute("DELETE FROM semesters WHERE semester_id = %s", (semester_id,))
+        conn.commit()
+    except mysql.connector.Error as e:
+        return redirect(url_for("settings", tab="academic",
+            error=f"Database error: {str(e)}"))
+    finally:
+        cursor.close()
+        conn.close()
+    return redirect(url_for("settings", tab="academic",
+        success="Semester deleted successfully."))
+
+
+@app.route("/settings/delete/teacher/<int:teacher_id>", methods=["POST"])
+@login_required
+def delete_teacher(teacher_id):
+    conn = get_conn()
+    cursor = conn.cursor(dictionary=True, buffered=True)
+    try:
+        # Check if teacher has courses assigned
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM courses WHERE teacher_id = %s",
+            (teacher_id,)
+        )
+        count = cursor.fetchone()["count"]
+        if count > 0:
+            return redirect(url_for("settings", tab="teachers",
+                error=f"Cannot delete this teacher. They are assigned to {count} course(s). Reassign the courses first."))
+
+        cursor.execute("DELETE FROM teachers WHERE teacher_id = %s", (teacher_id,))
+        conn.commit()
+    except mysql.connector.Error as e:
+        return redirect(url_for("settings", tab="teachers",
+            error=f"Database error: {str(e)}"))
+    finally:
+        cursor.close()
+        conn.close()
+    return redirect(url_for("settings", tab="teachers",
+        success="Teacher deleted successfully."))
+
+
+@app.route("/settings/delete/course/<int:course_id>", methods=["POST"])
+@login_required
+def delete_course(course_id):
+    conn = get_conn()
+    cursor = conn.cursor(dictionary=True, buffered=True)
+    try:
+        # Check if course has enrollments
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM enrollments WHERE course_id = %s",
+            (course_id,)
+        )
+        count = cursor.fetchone()["count"]
+        if count > 0:
+            return redirect(url_for("settings", tab="courses",
+                error=f"Cannot delete this course. It has {count} enrollment(s). Remove enrollments first."))
+
+        cursor.execute("DELETE FROM courses WHERE course_id = %s", (course_id,))
+        conn.commit()
+    except mysql.connector.Error as e:
+        return redirect(url_for("settings", tab="courses",
+            error=f"Database error: {str(e)}"))
+    finally:
+        cursor.close()
+        conn.close()
+    return redirect(url_for("settings", tab="courses",
+        success="Course deleted successfully."))
 
 if __name__ == '__main__':
     app.run(debug=True)
