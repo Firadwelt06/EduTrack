@@ -8,6 +8,7 @@ import os
 import subprocess
 from datetime import datetime
 
+# Backup configuration
 MYSQLDUMP_PATH = r"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqldump.exe"
 BACKUP_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backups")
 
@@ -370,8 +371,9 @@ def student_detail(student_id):
 
     # Get student info
     cursor.execute("""
-        SELECT first_name, middle_name, last_name, 
-               email, grade_level, enrollment_date
+        SELECT first_name, middle_name, last_name, date_of_birth,
+               email, address, guardian_name, guardian_phone,
+               grade_level, enrollment_date
         FROM students WHERE student_id = %s
     """, (student_id,))
     student = cursor.fetchone()
@@ -436,7 +438,11 @@ def add_student():
         fname = request.form["fname"].strip()
         mname = request.form["mname"].strip() or None
         lname = request.form["lname"].strip()
+        date_of_birth = request.form.get("date_of_birth") or None
         email = request.form["email"].strip()
+        address = request.form.get("address", "").strip() or None
+        guardian_name = request.form.get("guardian_name", "").strip() or None
+        guardian_phone = request.form.get("guardian_phone", "").strip() or None
         grade_level = request.form["grade_level"]
 
         if not all([fname, lname, email, grade_level]):
@@ -447,9 +453,11 @@ def add_student():
             try:
                 cursor.execute(
                     """INSERT INTO students 
-                    (first_name, middle_name, last_name, email, grade_level) 
-                    VALUES (%s, %s, %s, %s, %s)""",
-                    (fname, mname, lname, email, grade_level)
+                    (first_name, middle_name, last_name, date_of_birth, email, 
+                     address, guardian_name, guardian_phone, grade_level) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (fname, mname, lname, date_of_birth, email, 
+                     address, guardian_name, guardian_phone, grade_level)
                 )
                 conn.commit()
                 success = f"Student {fname} {lname} added successfully."

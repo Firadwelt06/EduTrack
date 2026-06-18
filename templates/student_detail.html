@@ -56,6 +56,35 @@
     </div>
 </div>
 
+<!-- Personal & Guardian Info -->
+<div class="card">
+    <h2>Personal & Guardian Information</h2>
+    <table>
+        <tr>
+            <td style="color:#888; width:180px;">Date of Birth</td>
+            <td>
+                {% if student['date_of_birth'] %}
+                {{ student['date_of_birth'].strftime('%B %d, %Y') }}
+                {% else %}
+                <span style="color:#bbb;">Not provided</span>
+                {% endif %}
+            </td>
+        </tr>
+        <tr>
+            <td style="color:#888;">Address</td>
+            <td>{{ student['address'] or 'Not provided' }}</td>
+        </tr>
+        <tr>
+            <td style="color:#888;">Guardian Name</td>
+            <td>{{ student['guardian_name'] or 'Not provided' }}</td>
+        </tr>
+        <tr>
+            <td style="color:#888;">Guardian Phone</td>
+            <td>{{ student['guardian_phone'] or 'Not provided' }}</td>
+        </tr>
+    </table>
+</div>
+
 <!-- Grades Table -->
 <div class="card">
     <h2>Courses & Grades This Semester</h2>
