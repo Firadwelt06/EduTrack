@@ -424,6 +424,27 @@ def student_detail(student_id):
     conn = get_conn()
     cursor = conn.cursor(dictionary=True)
 
+    # Data-level authorization: build the WHERE clause based on WHO is asking,
+    # not just whether they're logged in.
+    if current_user.role == 'admin':
+        pass  # no extra restriction
+    elif current_user.role == 'teacher':
+        cursor.execute("""
+            SELECT 1 FROM enrollments e
+            WHERE e.student_id = %s
+            AND e.course_id IN (SELECT course_id FROM courses WHERE teacher_id = %s)
+            LIMIT 1
+        """, (student_id, current_user.teacher_id))
+        if not cursor.fetchone():
+            flash("You don't have access to that student's record.", "error")
+            return redirect(url_for('dashboard'))
+    elif current_user.role == 'student':
+        if student_id != current_user.student_id:
+            flash("You don't have access to that student's record.", "error")
+            return redirect(url_for('dashboard'))
+
+    # ... rest of the existing route logic continues unchanged below
+
     selected_year_id = request.args.get("year_id", type=int)
     selected_semester_id = request.args.get("semester_id", type=int)
 
