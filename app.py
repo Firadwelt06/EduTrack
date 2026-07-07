@@ -190,7 +190,31 @@ def dashboard():
     if not selected_semester_id and semesters:
         selected_semester_id = semesters[0]["semester_id"]
 
-    # Dashboard metrics
+    if current_user.role == 'student':
+            my_grades = []
+            gpa = None
+            if selected_semester_id:
+                cursor.execute("""
+                    SELECT c.course_name, e.final_grade
+                    FROM enrollments e
+                    JOIN courses c ON e.course_id = c.course_id
+                    WHERE e.student_id = %s AND e.semester_id = %s
+                """, (current_user.student_id, selected_semester_id))
+                my_grades = cursor.fetchall()
+
+                grade_points = {'S': 4.0, 'A': 3.5, 'B': 3.0, 'C': 2.0, 'D': 1.0, 'F': 0.0}
+                points = [grade_points[g['final_grade']] for g in my_grades if g['final_grade'] in grade_points]
+                if points:
+                    gpa = round(sum(points) / len(points), 2)
+
+            cursor.close()
+            conn.close()
+            return render_template("student_dashboard.html",
+                years=years, semesters=semesters,
+                selected_year_id=selected_year_id, selected_semester_id=selected_semester_id,
+                my_grades=my_grades, gpa=gpa)
+
+    # Admin & teacher: existing school-wide metrics
     metrics = {"students": 0, "courses": 0, "enrollments": 0}
     top_students = []
     grade_distribution = []
@@ -298,6 +322,7 @@ STUDENTS_PER_PAGE = 20
 
 @app.route("/students")
 @login_required
+@roles_required("admin", "teacher")
 def students():
     conn = get_conn()
     cursor = conn.cursor(dictionary=True)
@@ -347,6 +372,17 @@ def students():
     # and matching parameter, in the same order, to keep them in sync.
     where_clauses = ["1=1"]
     where_params = []
+
+    # Data-level scoping: a teacher only ever sees students in courses they teach
+    if current_user.role == 'teacher':
+        where_clauses.append("""
+            s.student_id IN (
+                SELECT e2.student_id FROM enrollments e2
+                JOIN courses c2 ON e2.course_id = c2.course_id
+                WHERE c2.teacher_id = %s
+            )
+        """)
+        where_params.append(current_user.teacher_id)
 
     if selected_grade:
         where_clauses.append("s.grade_level = %s")
@@ -530,6 +566,7 @@ def student_detail(student_id):
 # Add Student
 @app.route("/add-student", methods=["GET", "POST"])
 @login_required
+@roles_required("admin")
 def add_student():
     error = None
     success = None
@@ -574,6 +611,7 @@ def add_student():
 # Grades
 @app.route("/grades", methods=["GET", "POST"])
 @login_required
+@roles_required("admin", "teacher") #students can view their own grades on the dashboard, so no need to allow them here
 def grades():
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
@@ -615,8 +653,11 @@ def grades():
 
         # Enroll student
         if action == "enroll":
-            student_id = request.form.get("student_id")
-            course_id = request.form.get("course_id")
+            if current_user.role != 'admin':
+                error = "Only admins can enroll students."
+            else:
+                student_id = request.form.get("student_id")
+                course_id = request.form.get("course_id")
 
             if not all([student_id, course_id, selected_semester_id]):
                 error = "Please select a student, course, and semester."
@@ -642,48 +683,51 @@ def grades():
             if not all([enrollment_id, new_grade]):
                 error = "Please select an enrollment and a grade."
             else:
-                try:
+            # Ownership check: a teacher can only grade enrollments in courses THEY teach
+                if current_user.role == 'teacher':
                     cursor.execute("""
-                        UPDATE enrollments 
-                        SET final_grade = %s 
-                        WHERE enrollment_id = %s
-                    """, (new_grade, enrollment_id))
+                        SELECT 1 FROM enrollments e
+                        JOIN courses c ON e.course_id = c.course_id
+                        WHERE e.enrollment_id = %s AND c.teacher_id = %s
+                    """, (enrollment_id, current_user.teacher_id))
+                    if not cursor.fetchone():
+                        error = "You can't update grades for a course you don't teach."
+
+                if not error:
+                    cursor.execute("UPDATE enrollments SET final_grade = %s WHERE enrollment_id = %s",
+                                   (new_grade, enrollment_id))
                     conn.commit()
                     success = f"Grade updated to {new_grade} successfully."
-                except mysql.connector.Error as e:
-                    error = f"Database error: {str(e)}"
 
-    # Get all enrollments for selected semester
+    # Enrollments list — scoped for teachers to only their own courses' enrollments
     enrollments = []
     if selected_semester_id:
-        cursor.execute("""
-            SELECT 
-                e.enrollment_id,
-                CONCAT(s.first_name, ' ', COALESCE(s.middle_name, ''), ' ', s.last_name) AS student_name,
-                s.grade_level,
-                c.course_name,
-                DATE(e.enrollment_date) AS enrollment_date,
-                COALESCE(e.final_grade, 'Not graded') AS final_grade
+        where = "e.semester_id = %s"
+        params = [selected_semester_id]
+        if current_user.role == 'teacher':
+            where += " AND c.teacher_id = %s"
+            params.append(current_user.teacher_id)
+
+        cursor.execute(f"""
+            SELECT e.enrollment_id,
+                   CONCAT(s.first_name, ' ', COALESCE(s.middle_name, ''), ' ', s.last_name) AS student_name,
+                   s.grade_level, c.course_name, DATE(e.enrollment_date) AS enrollment_date,
+                   COALESCE(e.final_grade, 'Not graded') AS final_grade
             FROM enrollments e
             JOIN students s ON e.student_id = s.student_id
             JOIN courses c ON e.course_id = c.course_id
-            WHERE e.semester_id = %s
+            WHERE {where}
             ORDER BY s.last_name, c.course_name
-        """, (selected_semester_id,))
+        """, params)
         enrollments = cursor.fetchall()
 
-    # Get all students for enroll dropdown
-    cursor.execute("""
-        SELECT student_id, 
-               CONCAT(first_name, ' ', last_name) AS full_name 
-        FROM students 
-        ORDER BY last_name
-    """)
-    all_students = cursor.fetchall()
-
-    # Get all courses for enroll dropdown
-    cursor.execute("SELECT course_id, course_name FROM courses ORDER BY course_name")
-    all_courses = cursor.fetchall()
+    # Dropdown data — only admins need the full lists (enroll form is admin-only)
+    all_students, all_courses = [], []
+    if current_user.role == 'admin':
+        cursor.execute("SELECT student_id, CONCAT(first_name, ' ', last_name) AS full_name FROM students ORDER BY last_name")
+        all_students = cursor.fetchall()
+        cursor.execute("SELECT course_id, course_name FROM courses ORDER BY course_name")
+        all_courses = cursor.fetchall()
 
     cursor.close()
     conn.close()
@@ -768,6 +812,19 @@ def courses():
 def course_detail(course_id):
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
+
+    if current_user.role == 'teacher':
+        cursor.execute("SELECT 1 FROM courses WHERE course_id = %s AND teacher_id = %s",
+                       (course_id, current_user.teacher_id))
+        if not cursor.fetchone():
+            flash("You don't have access to that course.", "error")
+            return redirect(url_for('dashboard'))
+    elif current_user.role == 'student':
+        cursor.execute("SELECT 1 FROM enrollments WHERE course_id = %s AND student_id = %s LIMIT 1",
+                       (course_id, current_user.student_id))
+        if not cursor.fetchone():
+            flash("You don't have access to that course.", "error")
+            return redirect(url_for('dashboard'))
 
     selected_year_id = request.args.get("year_id", type=int)
     selected_semester_id = request.args.get("semester_id", type=int)
@@ -862,6 +919,7 @@ def course_detail(course_id):
 #Settings
 @app.route("/settings", methods=["GET", "POST"])
 @login_required
+@roles_required("admin")
 def settings():
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
@@ -1041,6 +1099,7 @@ def settings():
 # Delete routes
 @app.route("/settings/delete/year/<int:year_id>", methods=["POST"])
 @login_required
+@roles_required("admin")
 def delete_year(year_id):
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
@@ -1077,6 +1136,7 @@ def delete_year(year_id):
 
 @app.route("/settings/delete/semester/<int:semester_id>", methods=["POST"])
 @login_required
+@roles_required("admin")
 def delete_semester(semester_id):
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
@@ -1105,6 +1165,7 @@ def delete_semester(semester_id):
 
 @app.route("/settings/delete/teacher/<int:teacher_id>", methods=["POST"])
 @login_required
+@roles_required("admin")
 def delete_teacher(teacher_id):
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
@@ -1133,6 +1194,7 @@ def delete_teacher(teacher_id):
 
 @app.route("/settings/delete/course/<int:course_id>", methods=["POST"])
 @login_required
+@roles_required("admin")
 def delete_course(course_id):
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
@@ -1161,6 +1223,7 @@ def delete_course(course_id):
 # Edit student details
 @app.route("/students/<int:student_id>/edit", methods=["GET", "POST"])
 @login_required
+@roles_required("admin")
 def edit_student(student_id):
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
@@ -1217,6 +1280,7 @@ def edit_student(student_id):
 # Import Students
 @app.route("/students/import", methods=["GET", "POST"])
 @login_required
+@roles_required("admin")
 def import_students():
     results = None
     if request.method == "POST":
@@ -1302,6 +1366,7 @@ def import_students():
 # Export Template
 @app.route("/students/import/template")
 @login_required
+@roles_required("admin")
 def student_import_template():
     output = io.StringIO()
     writer = csv.writer(output)

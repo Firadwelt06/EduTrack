@@ -44,6 +44,7 @@
 <div class="two-col" style="margin-bottom:25px;">
 
     <!-- Enroll Student -->
+    {% if current_user['role'] == 'admin' %}
     <div class="card">
         <h2>Enroll a Student</h2>
         <form method="POST" action="/grades?year_id={{ selected_year_id }}&semester_id={{ selected_semester_id }}">
@@ -76,6 +77,7 @@
             <button type="submit" class="btn btn-primary">Enroll Student</button>
         </form>
     </div>
+    {% endif %}
 
     <!-- Update Grade -->
     <div class="card">
