@@ -2,7 +2,6 @@ from flask import Flask, flash, render_template, request, redirect, url_for, ses
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
-import hashlib
 from dotenv import load_dotenv
 import mysql.connector
 import os
@@ -85,12 +84,13 @@ login_manager.login_message = "Please log in to access this page."
 
 # Login manager user class
 class User(UserMixin):
-    def __init__(self, user_id, username, role, student_id=None, teacher_id=None):
+    def __init__(self, user_id, username, role, student_id=None, teacher_id=None, must_change_password=False):
         self.id = user_id
         self.username = username
         self.role = role
         self.student_id = student_id
         self.teacher_id = teacher_id
+        self.must_change_password = bool(must_change_password)
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -102,7 +102,8 @@ def load_user(user_id):
     conn.close()
     if user:
         return User(user["user_id"], user["username"], user["role"],
-                    user.get("student_id"), user.get("teacher_id"))
+                    user.get("student_id"), user.get("teacher_id"),
+                    user.get("must_change_password", 0))
     return None
 
 # Connect to MySQL database
@@ -114,6 +115,19 @@ def get_conn():
         database=os.getenv('DB_DATABASE'),
         auth_plugin='mysql_native_password'
     )
+
+# Any authenticated user with a pending forced password reset gets redirected
+# to /account/password no matter what URL they request, until they set a new
+# password. This has to run globally (not just as a per-route check) or a
+# flagged user could simply avoid the routes that check for it.
+PASSWORD_CHANGE_EXEMPT_ENDPOINTS = {"account_password", "logout", "static"}
+
+@app.before_request
+def enforce_password_change():
+    if current_user.is_authenticated and getattr(current_user, "must_change_password", False):
+        if request.endpoint not in PASSWORD_CHANGE_EXEMPT_ENDPOINTS:
+            flash("You must change your password before continuing.", "info")
+            return redirect(url_for("account_password"))
 
 # Routes
 # Login and Logout
@@ -132,10 +146,13 @@ def login():
         conn.close()
 
         if user:
-            # Check password against SHA2 hash
-            password_hash = hashlib.sha256(password.encode()).hexdigest()
-            if password_hash == user["password_hash"]:
-                login_user(User(user["user_id"], user["username"], user["role"], user.get("student_id"), user.get("teacher_id")))
+            if check_password_hash(user["password_hash"], password):
+                login_user(User(user["user_id"], user["username"], user["role"],
+                                 user.get("student_id"), user.get("teacher_id"),
+                                 user.get("must_change_password", 0)))
+                if current_user.must_change_password:
+                    flash("You must set a new password before continuing.", "info")
+                    return redirect(url_for("account_password"))
                 return redirect(url_for("dashboard"))
             else:
                 error = "Incorrect password."
@@ -150,6 +167,54 @@ def login():
 def logout():
     logout_user()
     return redirect(url_for("login"))
+
+
+# Change / set password for the currently logged-in user, regardless of role.
+# Used both for the forced-reset flow (must_change_password=1) and for anyone
+# who just wants to change their own password without going through Settings
+# (which is admin-only).
+@app.route("/account/password", methods=["GET", "POST"])
+@login_required
+def account_password():
+    error = None
+    success = None
+
+    if request.method == "POST":
+        current_password = request.form.get("current_password", "").strip()
+        new_password = request.form.get("new_password", "").strip()
+        confirm_password = request.form.get("confirm_password", "").strip()
+
+        conn = get_conn()
+        cursor = conn.cursor(dictionary=True, buffered=True)
+        cursor.execute("SELECT password_hash FROM users WHERE user_id = %s", (current_user.id,))
+        user = cursor.fetchone()
+
+        if not user or not check_password_hash(user["password_hash"], current_password):
+            error = "Current password is incorrect."
+        elif new_password != confirm_password:
+            error = "New passwords do not match."
+        elif len(new_password) < 6:
+            error = "New password must be at least 6 characters."
+        else:
+            new_hash = generate_password_hash(new_password)
+            cursor.execute(
+                "UPDATE users SET password_hash = %s, must_change_password = 0 WHERE user_id = %s",
+                (new_hash, current_user.id)
+            )
+            conn.commit()
+            cursor.close()
+            conn.close()
+            current_user.must_change_password = False
+            flash("Password changed successfully.", "success")
+            return redirect(url_for("dashboard"))
+
+        cursor.close()
+        conn.close()
+
+    return render_template("change_password.html",
+        error=error, success=success,
+        forced=current_user.must_change_password)
+
 
 # Dashboard
 @app.route("/")
@@ -1029,14 +1094,13 @@ def settings():
         new_password = request.form.get("new_password", "").strip()
         confirm_password = request.form.get("confirm_password", "").strip()
 
-        current_hash = hashlib.sha256(current_password.encode()).hexdigest()
         cursor.execute(
             "SELECT password_hash FROM users WHERE user_id = %s",
             (current_user.id,)
         )
         user = cursor.fetchone()
 
-        if not user or current_hash != user["password_hash"]:
+        if not user or not check_password_hash(user["password_hash"], current_password):
             error = "Current password is incorrect."
             active_tab = "account"
         elif new_password != confirm_password:
@@ -1046,9 +1110,9 @@ def settings():
             error = "New password must be at least 6 characters."
             active_tab = "account"
         else:
-            new_hash = hashlib.sha256(new_password.encode()).hexdigest()
+            new_hash = generate_password_hash(new_password)
             cursor.execute(
-                "UPDATE users SET password_hash = %s WHERE user_id = %s",
+                "UPDATE users SET password_hash = %s, must_change_password = 0 WHERE user_id = %s",
                 (new_hash, current_user.id)
             )
             conn.commit()
