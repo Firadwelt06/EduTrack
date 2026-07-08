@@ -48,6 +48,7 @@
     <div class="card">
         <h2>Enroll a Student</h2>
         <form method="POST" action="/grades?year_id={{ selected_year_id }}&semester_id={{ selected_semester_id }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="enroll">
 
             <div class="form-group">
@@ -83,6 +84,7 @@
     <div class="card">
         <h2>Assign / Update Grade</h2>
         <form method="POST" action="/grades?year_id={{ selected_year_id }}&semester_id={{ selected_semester_id }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="update_grade">
 
             <div class="form-group">

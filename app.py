@@ -1,5 +1,6 @@
 from flask import Flask, flash, render_template, request, redirect, url_for, session, Response, abort
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_wtf.csrf import CSRFProtect, CSRFError
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from dotenv import load_dotenv
@@ -75,6 +76,13 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY")
+
+csrf = CSRFProtect(app)
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(e):
+    flash("Your session expired or the form was resubmitted invalidly. Please try again.", "error")
+    return redirect(request.referrer or url_for("dashboard"))
 
 # Initialize Flask-Login
 login_manager = LoginManager()
