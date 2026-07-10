@@ -10,37 +10,68 @@ import subprocess
 from datetime import datetime
 import csv
 import io
+import getpass
+import tempfile
 
 # Backup configuration
 MYSQLDUMP_PATH = r"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqldump.exe"
 BACKUP_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backups")
+
+def create_secure_option_file():
+    """
+    Writes a MySQL option file containing the DB password for mysqldump
+    to read via --defaults-extra-file, then locks its permissions down
+    via icacls so only the account running this process can read it.
+    (os.chmod is a no-op for real access control on Windows — it only
+    toggles the read-only attribute, not NTFS ACLs.)
+    Caller is responsible for deleting the returned path.
+    """
+    fd, path = tempfile.mkstemp(prefix="mysqldump_opts_", suffix=".cnf", dir=BACKUP_FOLDER)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write("[client]\n")
+            f.write(f"password={os.getenv('DB_PASSWORD')}\n")
+
+        # /inheritance:r strips whatever permissions this file would
+        # otherwise inherit from the backups/ folder (e.g. a "Users"
+        # group with read access). /grant:r replaces the ACL entirely
+        # with just this one entry.
+        subprocess.run(
+            ["icacls", path, "/inheritance:r", "/grant:r", f"{getpass.getuser()}:F"],
+            check=True, capture_output=True
+        )
+    except Exception:
+        os.remove(path)
+        raise
+    return path
 
 def run_daily_backup():
     today_str = datetime.now().strftime("%Y-%m-%d")
     backup_filename = f"school_db_backup_{today_str}.sql"
     backup_path = os.path.join(BACKUP_FOLDER, backup_filename)
 
-    # If today's backup already exists, skip
     if os.path.exists(backup_path):
         print(f"Backup already exists for today: {backup_filename}")
         return
 
-    # Make sure the backups folder exists
     os.makedirs(BACKUP_FOLDER, exist_ok=True)
 
+    option_file = create_secure_option_file()
     try:
         with open(backup_path, "w") as backup_file:
             subprocess.run([
                 MYSQLDUMP_PATH,
+                f"--defaults-extra-file={option_file}",
                 "--no-tablespaces",
                 "-h", os.getenv("DB_HOST"),
                 "-u", os.getenv("DB_USERNAME"),
-                f"-p{os.getenv('DB_PASSWORD')}",
                 os.getenv("DB_DATABASE")
             ], stdout=backup_file, check=True)
         print(f"Backup created successfully: {backup_filename}")
     except subprocess.CalledProcessError as e:
         print(f"Backup failed: {e}")
+    finally:
+        os.remove(option_file)
 
 def cleanup_old_backups(days_to_keep=14):
     if not os.path.exists(BACKUP_FOLDER):
