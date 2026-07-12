@@ -1605,6 +1605,7 @@ def student_import_template():
     )
 
 if __name__ == '__main__':
+    debug_mode = os.getenv("FLASK_DEBUG", "false").lower() == "true"
     run_daily_backup()
     cleanup_old_backups()
-    app.run(debug=True)
+    app.run(debug=debug_mode)
