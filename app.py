@@ -1382,6 +1382,61 @@ def settings():
         success=success
     )
 
+# Audit Log
+AUDIT_PER_PAGE = 25
+
+@app.route("/audit-log")
+@login_required
+@roles_required("admin")
+def audit_log():
+    conn = get_conn()
+    cursor = conn.cursor(dictionary=True, buffered=True)
+
+    entity_filter = request.args.get("entity_type", "").strip()
+    page = request.args.get("page", 1, type=int)
+    if page < 1:
+        page = 1
+
+    where_clauses = ["1=1"]
+    where_params = []
+    if entity_filter:
+        where_clauses.append("entity_type = %s")
+        where_params.append(entity_filter)
+    where_sql = " AND ".join(where_clauses)
+
+    cursor.execute(f"SELECT COUNT(*) as total FROM audit_log WHERE {where_sql}", where_params)
+    total_count = cursor.fetchone()["total"]
+    total_pages = max(1, (total_count + AUDIT_PER_PAGE - 1) // AUDIT_PER_PAGE)
+    if page > total_pages:
+        page = total_pages
+    offset = (page - 1) * AUDIT_PER_PAGE
+
+    cursor.execute(f"""
+        SELECT log_id, username, action, entity_type, entity_id, details, created_at
+        FROM audit_log
+        WHERE {where_sql}
+        ORDER BY created_at DESC
+        LIMIT %s OFFSET %s
+    """, where_params + [AUDIT_PER_PAGE, offset])
+    entries = cursor.fetchall()
+
+    # entity_type dropdown options — distinct values actually present, not a hardcoded list,
+    # so it stays accurate as you add more audited actions later
+    cursor.execute("SELECT DISTINCT entity_type FROM audit_log ORDER BY entity_type")
+    entity_types = [row["entity_type"] for row in cursor.fetchall()]
+
+    cursor.close()
+    conn.close()
+
+    return render_template("audit_log.html",
+        entries=entries,
+        entity_types=entity_types,
+        entity_filter=entity_filter,
+        page=page,
+        total_pages=total_pages,
+        total_count=total_count
+    )
+
 # Delete routes
 @app.route("/settings/delete/year/<int:year_id>", methods=["POST"])
 @login_required

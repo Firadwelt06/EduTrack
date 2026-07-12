@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Audit Log{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+    <h1>Audit Log</h1>
+    <p>{{ total_count }} recorded action{{ 's' if total_count != 1 else '' }}</p>
+</div>
+
+<!-- Filter Bar -->
+<div class="filter-bar">
+    <label>Entity Type</label>
+    <form method="GET" style="display:flex; gap:10px; align-items:center;">
+        <select name="entity_type" onchange="this.form.submit()">
+            <option value="">All Types</option>
+            {% for et in entity_types %}
+            <option value="{{ et }}" {% if et == entity_filter %}selected{% endif %}>
+                {{ et }}
+            </option>
+            {% endfor %}
+        </select>
+    </form>
+</div>
+
+<div class="card">
+    <h2>Recorded Actions</h2>
+    {% if entries %}
+    <table>
+        <thead>
+            <tr>
+                <th>When</th>
+                <th>User</th>
+                <th>Action</th>
+                <th>Entity</th>
+                <th>Details</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in entries %}
+            <tr>
+                <td>{{ entry['created_at'].strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                <td>{{ entry['username'] }}</td>
+                <td>{{ entry['action'] }}</td>
+                <td>{{ entry['entity_type'] }} {% if entry['entity_id'] %}#{{ entry['entity_id'] }}{% endif %}</td>
+                <td style="font-size:12px; color:#666;">
+                    {% if entry['details'] %}
+                    {% for key, value in entry['details'].items() %}
+                    <div><strong>{{ key }}:</strong> {{ value }}</div>
+                    {% endfor %}
+                    {% else %}
+                    <span style="color:#bbb;">—</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {% if total_pages > 1 %}
+    <div style="display:flex; justify-content:center; align-items:center; gap:8px; margin-top:20px;">
+        {% if page > 1 %}
+        <a href="{{ url_for('audit_log', **dict(request.args, page=page - 1)) }}" class="btn" style="background:#f0f0f0; color:#333; padding:8px 14px;">&laquo; Prev</a>
+        {% endif %}
+        <span style="font-size:14px; color:#888;">Page {{ page }} of {{ total_pages }}</span>
+        {% if page < total_pages %}
+        <a href="{{ url_for('audit_log', **dict(request.args, page=page + 1)) }}" class="btn" style="background:#f0f0f0; color:#333; padding:8px 14px;">Next &raquo;</a>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="empty-state">No audit entries recorded yet.</div>
+    {% endif %}
+</div>
+
+{% endblock %}
