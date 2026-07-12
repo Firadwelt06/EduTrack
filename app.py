@@ -20,6 +20,7 @@ import tempfile
 import secrets
 import keyring
 import logging
+import json
 from logging.handlers import RotatingFileHandler
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
@@ -206,6 +207,20 @@ def backoff_seconds(failed_attempts):
         return 0
     return min(300, 2 ** (failed_attempts - 2))  # 2s, 4s, 8s ... capped
 
+# Audit logging helper
+def log_audit(cursor, action, entity_type, entity_id=None, details=None):
+    """Record an audit trail entry. Call this AFTER the real change has
+    succeeded (same cursor/transaction, before conn.commit()) so the audit
+    row and the actual change commit or roll back together — you never
+    want an audit log claiming something happened that didn't actually
+    stick, or a real change with no record of who made it."""
+    cursor.execute(
+        """INSERT INTO audit_log (user_id, username, action, entity_type, entity_id, details)
+           VALUES (%s, %s, %s, %s, %s, %s)""",
+        (current_user.id, current_user.username, action, entity_type, entity_id,
+         json.dumps(details) if details is not None else None)
+    )
+
 # Correlation ref logging for database errors. This is a security measure to avoid exposing raw DB errors to users, while still allowing developers to trace issues.
 def log_db_error(exc):
     """Log the real exception server-side under a short correlation ref,
@@ -216,6 +231,8 @@ def log_db_error(exc):
     return ref
 
 load_dotenv()
+
+debug_mode = os.getenv("FLASK_DEBUG", "false").lower() == "true"
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY")
@@ -925,6 +942,9 @@ def grades():
                         (student_id, course_id, semester_id, academic_year_id)
                         VALUES (%s, %s, %s, %s)
                     """, (student_id, course_id, selected_semester_id, selected_year_id))
+                    new_enrollment_id = cursor.lastrowid
+                    log_audit(cursor, "enroll", "enrollment", new_enrollment_id,
+                              {"student_id": int(student_id), "course_id": int(course_id)})
                     conn.commit()
                     success = "Student enrolled successfully."
                 except mysql.connector.IntegrityError:
@@ -952,8 +972,15 @@ def grades():
                         error = "You can't update grades for a course you don't teach."
 
                 if not error:
+                    cursor.execute("SELECT final_grade FROM enrollments WHERE enrollment_id = %s",
+                                   (enrollment_id,))
+                    old_row = cursor.fetchone()
+                    old_grade = old_row["final_grade"] if old_row else None
+
                     cursor.execute("UPDATE enrollments SET final_grade = %s WHERE enrollment_id = %s",
                                    (new_grade, enrollment_id))
+                    log_audit(cursor, "update_grade", "enrollment", int(enrollment_id),
+                              {"old_grade": old_grade, "new_grade": new_grade})
                     conn.commit()
                     success = f"Grade updated to {new_grade} successfully."
 
@@ -1363,14 +1390,12 @@ def delete_year(year_id):
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
     try:
-        # Check if year has semesters
         cursor.execute(
             "SELECT COUNT(*) as count FROM semesters WHERE year_id = %s",
             (year_id,)
         )
         count = cursor.fetchone()["count"]
         if count > 0:
-            # Delete will cascade to semesters but check enrollments first
             cursor.execute("""
                 SELECT COUNT(*) as count FROM enrollments e
                 JOIN semesters s ON e.semester_id = s.semester_id
@@ -1381,7 +1406,11 @@ def delete_year(year_id):
                 return redirect(url_for("settings", tab="academic",
                     error="Cannot delete this year. It has active enrollments attached to it."))
 
+        cursor.execute("SELECT year_name, is_current FROM academic_years WHERE year_id = %s", (year_id,))
+        year = cursor.fetchone()
+
         cursor.execute("DELETE FROM academic_years WHERE year_id = %s", (year_id,))
+        log_audit(cursor, "delete", "academic_year", year_id, dict(year) if year else None)
         conn.commit()
     except mysql.connector.Error as e:
         ref = log_db_error(e)
@@ -1401,7 +1430,6 @@ def delete_semester(semester_id):
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
     try:
-        # Check if semester has enrollments
         cursor.execute(
             "SELECT COUNT(*) as count FROM enrollments WHERE semester_id = %s",
             (semester_id,)
@@ -1411,7 +1439,14 @@ def delete_semester(semester_id):
             return redirect(url_for("settings", tab="academic",
                 error=f"Cannot delete this semester. It has {count} enrollment(s) attached to it."))
 
+        cursor.execute(
+            "SELECT year_id, semester_name, semester_order FROM semesters WHERE semester_id = %s",
+            (semester_id,)
+        )
+        semester = cursor.fetchone()
+
         cursor.execute("DELETE FROM semesters WHERE semester_id = %s", (semester_id,))
+        log_audit(cursor, "delete", "semester", semester_id, dict(semester) if semester else None)
         conn.commit()
     except mysql.connector.Error as e:
         ref = log_db_error(e)
@@ -1431,7 +1466,7 @@ def delete_teacher(teacher_id):
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
     try:
-        # Check if teacher has courses assigned
+        # Check if teacher is assigned to any courses
         cursor.execute(
             "SELECT COUNT(*) as count FROM courses WHERE teacher_id = %s",
             (teacher_id,)
@@ -1441,7 +1476,11 @@ def delete_teacher(teacher_id):
             return redirect(url_for("settings", tab="teachers",
                 error=f"Cannot delete this teacher. They are assigned to {count} course(s). Reassign the courses first."))
 
+        cursor.execute("SELECT first_name, last_name, email FROM teachers WHERE teacher_id = %s", (teacher_id,))
+        teacher = cursor.fetchone()
+
         cursor.execute("DELETE FROM teachers WHERE teacher_id = %s", (teacher_id,))
+        log_audit(cursor, "delete", "teacher", teacher_id, dict(teacher) if teacher else None)
         conn.commit()
     except mysql.connector.Error as e:
         ref = log_db_error(e)
@@ -1461,7 +1500,6 @@ def delete_course(course_id):
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
     try:
-        # Check if course has enrollments
         cursor.execute(
             "SELECT COUNT(*) as count FROM enrollments WHERE course_id = %s",
             (course_id,)
@@ -1471,7 +1509,14 @@ def delete_course(course_id):
             return redirect(url_for("settings", tab="courses",
                 error=f"Cannot delete this course. It has {count} enrollment(s). Remove enrollments first."))
 
+        cursor.execute(
+            "SELECT course_name, capacity, teacher_id FROM courses WHERE course_id = %s",
+            (course_id,)
+        )
+        course = cursor.fetchone()
+
         cursor.execute("DELETE FROM courses WHERE course_id = %s", (course_id,))
+        log_audit(cursor, "delete", "course", course_id, dict(course) if course else None)
         conn.commit()
     except mysql.connector.Error as e:
         ref = log_db_error(e)
