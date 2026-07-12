@@ -1,6 +1,9 @@
 from flask import Flask, flash, render_template, request, redirect, url_for, session, Response, abort
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_wtf.csrf import CSRFProtect, CSRFError
+import hashlib
+import urllib.request
+import urllib.error
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -158,6 +161,41 @@ def roles_required(*allowed_roles):
             return f(*args, **kwargs)
         return wrapped
     return decorator
+
+#Shared validation helper
+PASSWORD_MIN_LENGTH = 12
+
+def validate_new_password(password):
+    """Returns None if the password is acceptable, or an error string if not.
+    Checks length per NIST 800-63B guidance (length over composition rules),
+    then checks the password against the HaveIBeenPwned Pwned Passwords API
+    using the k-anonymity model: only the first 5 characters of the SHA-1
+    hash are ever sent, so the real password (and even its full hash) never
+    leaves this machine. If the API is unreachable, we skip that check
+    rather than block the user from changing their password over a
+    third-party outage."""
+    if len(password) < PASSWORD_MIN_LENGTH:
+        return f"Password must be at least {PASSWORD_MIN_LENGTH} characters."
+
+    sha1 = hashlib.sha1(password.encode("utf-8")).hexdigest().upper()
+    prefix, suffix = sha1[:5], sha1[5:]
+
+    try:
+        req = urllib.request.Request(
+            f"https://api.pwnedpasswords.com/range/{prefix}",
+            headers={"User-Agent": "EduTrack-App"}
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            body = resp.read().decode("utf-8")
+        for line in body.splitlines():
+            hash_suffix, count = line.split(":")
+            if hash_suffix == suffix:
+                return ("This password has appeared in a known data breach. "
+                        "Please choose a different one.")
+    except (urllib.error.URLError, TimeoutError):
+        app.logger.warning("Pwned Passwords check skipped (API unreachable).")
+
+    return None
 
 # Rate limiting helper: exponential backoff for repeated failures
 def backoff_seconds(failed_attempts):
@@ -344,20 +382,22 @@ def account_password():
             error = "Current password is incorrect."
         elif new_password != confirm_password:
             error = "New passwords do not match."
-        elif len(new_password) < 6:
-            error = "New password must be at least 6 characters."
         else:
-            new_hash = generate_password_hash(new_password)
-            cursor.execute(
-                "UPDATE users SET password_hash = %s, must_change_password = 0 WHERE user_id = %s",
-                (new_hash, current_user.id)
-            )
-            conn.commit()
-            cursor.close()
-            conn.close()
-            current_user.must_change_password = False
-            flash("Password changed successfully.", "success")
-            return redirect(url_for("dashboard"))
+            password_error = validate_new_password(new_password)
+            if password_error:
+                error = password_error
+            else:
+                new_hash = generate_password_hash(new_password)
+                cursor.execute(
+                    "UPDATE users SET password_hash = %s, must_change_password = 0 WHERE user_id = %s",
+                    (new_hash, current_user.id)
+                )
+                conn.commit()
+                cursor.close()
+                conn.close()
+                current_user.must_change_password = False
+                flash("Password changed successfully.", "success")
+                return redirect(url_for("dashboard"))
 
         cursor.close()
         conn.close()
@@ -1259,18 +1299,20 @@ def settings():
         elif new_password != confirm_password:
             error = "New passwords do not match."
             active_tab = "account"
-        elif len(new_password) < 6:
-            error = "New password must be at least 6 characters."
-            active_tab = "account"
         else:
-            new_hash = generate_password_hash(new_password)
-            cursor.execute(
-                "UPDATE users SET password_hash = %s, must_change_password = 0 WHERE user_id = %s",
-                (new_hash, current_user.id)
-            )
-            conn.commit()
-            success = "Password changed successfully."
-            active_tab = "account"
+            password_error = validate_new_password(new_password)
+            if password_error:
+                error = password_error
+                active_tab = "account"
+            else:
+                new_hash = generate_password_hash(new_password)
+                cursor.execute(
+                    "UPDATE users SET password_hash = %s, must_change_password = 0 WHERE user_id = %s",
+                    (new_hash, current_user.id)
+                )
+                conn.commit()
+                success = "Password changed successfully."
+                active_tab = "account"
 
     # ── FETCH DATA FOR DISPLAY ──
     cursor.execute(
