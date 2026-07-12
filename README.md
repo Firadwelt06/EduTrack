@@ -143,6 +143,19 @@ This list is intentionally public — part of the point of this project is
 practicing security auditing in the open rather than presenting a polished
 facade.
 
+## AI Assistance Disclosure
+
+In building this project, I collaborated with Claude (Anthropic) for security
+auditing, code review, and implementation guidance — including the
+authentication hardening, encryption design, and input-validation fixes
+documented above. I affirm that all AI-assisted content underwent thorough
+review on my part: I evaluated each suggestion, understood the reasoning
+behind it, and the final implementation reflects my own understanding of the
+trade-offs involved. While AI assistance was instrumental to the process, I
+maintain full responsibility for the code, its correctness, and its security
+posture. This disclosure is made in the interest of transparency about how
+the project was built.
+
 ## License
 
 Apache License 2.0 — see `LICENSE`.

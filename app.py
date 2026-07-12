@@ -184,6 +184,7 @@ app.secret_key = os.getenv("SECRET_KEY")
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = not debug_mode
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024  # 2MB cap on request bodies
 
 # Set up logging to a file with rotation, only in production (not debug mode)
 if not app.debug:
@@ -1498,6 +1499,17 @@ def edit_student(student_id):
     return render_template("edit_student.html", 
         student=student, student_id=student_id, error=error)
 
+#Sanitize CSV fields to prevent formula injection
+FORMULA_TRIGGER_CHARS = ("=", "+", "-", "@", "\t", "\r")
+
+def sanitize_csv_field(value):
+    """Neutralize spreadsheet formula injection: if a field starts with a
+    character Excel/Sheets would interpret as a formula trigger, prefix
+    it with a single quote so it's treated as literal text on any future
+    export or when the file is opened directly in a spreadsheet app."""
+    if value and value[0] in FORMULA_TRIGGER_CHARS:
+        return "'" + value
+    return value
 # Import Students
 @app.route("/students/import", methods=["GET", "POST"])
 @login_required
@@ -1510,23 +1522,35 @@ def import_students():
             results = {"error": "No file selected."}
         elif not file.filename.lower().endswith(".csv"):
             results = {"error": "Please upload a .csv file."}
+        
+        # Content validation and processing
         else:
-            stream = io.StringIO(file.stream.read().decode("utf-8-sig"))
-            reader = csv.DictReader(stream)
+            try:
+                raw = file.stream.read().decode("utf-8-sig")
+            except UnicodeDecodeError:
+                raw = None
 
-            added, updated, skipped = [], [], []
-            conn = get_conn()
-            cursor = conn.cursor(dictionary=True, buffered=True)
+            expected_headers = {"first_name", "last_name", "email", "grade_level"}
+            reader = csv.DictReader(io.StringIO(raw)) if raw is not None else None
+
+            if raw is None or not reader.fieldnames or not expected_headers.issubset(set(reader.fieldnames)):
+                results = {"error": "That file doesn't look like a valid student CSV. "
+                                     "Please use the provided template."}
+            else:
+
+                added, updated, skipped = [], [], []
+                conn = get_conn()
+                cursor = conn.cursor(dictionary=True, buffered=True)
 
             for row_num, row in enumerate(reader, start=2):  # row 1 is the header
-                fname = (row.get("first_name") or "").strip()
-                mname = (row.get("middle_name") or "").strip() or None
-                lname = (row.get("last_name") or "").strip()
-                email = (row.get("email") or "").strip()
+                fname = sanitize_csv_field((row.get("first_name") or "").strip())
+                mname = sanitize_csv_field((row.get("middle_name") or "").strip()) or None
+                lname = sanitize_csv_field((row.get("last_name") or "").strip())
+                email = (row.get("email") or "").strip()  # email validated separately, no sanitization needed
                 dob = (row.get("date_of_birth") or "").strip() or None
-                address = (row.get("address") or "").strip() or None
-                guardian_name = (row.get("guardian_name") or "").strip() or None
-                guardian_phone = (row.get("guardian_phone") or "").strip() or None
+                address = sanitize_csv_field((row.get("address") or "").strip()) or None
+                guardian_name = sanitize_csv_field((row.get("guardian_name") or "").strip()) or None
+                guardian_phone = sanitize_csv_field((row.get("guardian_phone") or "").strip()) or None
                 grade_level = (row.get("grade_level") or "").strip()
 
                 if not fname or not lname or not email or not grade_level:
@@ -1608,6 +1632,7 @@ def student_import_template():
     )
 
 if __name__ == '__main__':
+    debug_mode = os.getenv("FLASK_DEBUG", "false").lower() == "true"
     run_daily_backup()
     cleanup_old_backups()
     app.run(debug=debug_mode)
