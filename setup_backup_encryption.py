@@ -40,8 +40,4 @@ def main():
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python decrypt_backup.py <encrypted_file> <output_file>")
-        sys.exit(1)
-    decrypt(sys.argv[1], sys.argv[2])
     main()

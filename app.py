@@ -1420,6 +1420,28 @@ def audit_log():
     """, where_params + [AUDIT_PER_PAGE, offset])
     entries = cursor.fetchall()
 
+    # Normalize fields for the template: parse JSON `details` into a dict
+    # and ensure `created_at` is a datetime object (defensive parsing).
+    for e in entries:
+        if e.get("details"):
+            try:
+                e["details"] = json.loads(e["details"])
+            except Exception:
+                e["details"] = {"_raw": e.get("details")}
+        else:
+            e["details"] = None
+        # created_at will usually be a datetime from the connector; if it's
+        # a string, try to parse a common format so template strftime works.
+        if isinstance(e.get("created_at"), str):
+            try:
+                e["created_at"] = datetime.fromisoformat(e["created_at"])
+            except Exception:
+                try:
+                    e["created_at"] = datetime.strptime(e["created_at"], "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    # leave as-is; template will raise a clear error if unsupported
+                    pass
+
     # entity_type dropdown options — distinct values actually present, not a hardcoded list,
     # so it stays accurate as you add more audited actions later
     cursor.execute("SELECT DISTINCT entity_type FROM audit_log ORDER BY entity_type")

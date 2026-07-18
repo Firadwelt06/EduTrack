@@ -6,3 +6,5 @@ SQL Scheme.sql
 requirements.txt
 backups/
 logs/
+__pycache__/
+restored.sql
