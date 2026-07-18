@@ -7,4 +7,5 @@ requirements.txt
 backups/
 logs/
 __pycache__/
+*.pyc
 restored.sql
