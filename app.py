@@ -745,10 +745,14 @@ def student_detail(student_id):
             LIMIT 1
         """, (student_id, current_user.teacher_id))
         if not cursor.fetchone():
+            cursor.close()
+            conn.close()
             flash("You don't have access to that student's record.", "error")
             return redirect(url_for('dashboard'))
     elif current_user.role == 'student':
         if student_id != current_user.student_id:
+            cursor.close()
+            conn.close()
             flash("You don't have access to that student's record.", "error")
             return redirect(url_for('dashboard'))
 
@@ -933,25 +937,25 @@ def grades():
                 student_id = request.form.get("student_id")
                 course_id = request.form.get("course_id")
 
-            if not all([student_id, course_id, selected_semester_id]):
-                error = "Please select a student, course, and semester."
-            else:
-                try:
-                    cursor.execute("""
-                        INSERT INTO enrollments 
-                        (student_id, course_id, semester_id, academic_year_id)
-                        VALUES (%s, %s, %s, %s)
-                    """, (student_id, course_id, selected_semester_id, selected_year_id))
-                    new_enrollment_id = cursor.lastrowid
-                    log_audit(cursor, "enroll", "enrollment", new_enrollment_id,
-                              {"student_id": int(student_id), "course_id": int(course_id)})
-                    conn.commit()
-                    success = "Student enrolled successfully."
-                except mysql.connector.IntegrityError:
-                    error = "This student is already enrolled in that course."
-                except mysql.connector.Error as e:
-                    ref = log_db_error(e)
-                    error = f"Something went wrong on our end (ref: {ref}). Please try again or contact an admin."
+                if not all([student_id, course_id, selected_semester_id, selected_year_id]):
+                    error = "Please select a student, course, and academic period."
+                else:
+                    try:
+                        cursor.execute("""
+                            INSERT INTO enrollments
+                            (student_id, course_id, semester_id, academic_year_id)
+                            VALUES (%s, %s, %s, %s)
+                        """, (student_id, course_id, selected_semester_id, selected_year_id))
+                        new_enrollment_id = cursor.lastrowid
+                        log_audit(cursor, "enroll", "enrollment", new_enrollment_id,
+                                  {"student_id": int(student_id), "course_id": int(course_id)})
+                        conn.commit()
+                        success = "Student enrolled successfully."
+                    except mysql.connector.IntegrityError:
+                        error = "This student is already enrolled in that course."
+                    except mysql.connector.Error as e:
+                        ref = log_db_error(e)
+                        error = f"Something went wrong on our end (ref: {ref}). Please try again or contact an admin."
 
         # Update grade
         elif action == "update_grade":
@@ -960,8 +964,10 @@ def grades():
 
             if not all([enrollment_id, new_grade]):
                 error = "Please select an enrollment and a grade."
+            elif new_grade not in ("S", "A", "B", "C", "D", "F"):
+                error = "Please select a valid grade."
             else:
-            # Ownership check: a teacher can only grade enrollments in courses THEY teach
+                # A teacher can only grade enrollments in courses they teach.
                 if current_user.role == 'teacher':
                     cursor.execute("""
                         SELECT 1 FROM enrollments e
@@ -1102,12 +1108,16 @@ def course_detail(course_id):
         cursor.execute("SELECT 1 FROM courses WHERE course_id = %s AND teacher_id = %s",
                        (course_id, current_user.teacher_id))
         if not cursor.fetchone():
+            cursor.close()
+            conn.close()
             flash("You don't have access to that course.", "error")
             return redirect(url_for('dashboard'))
     elif current_user.role == 'student':
         cursor.execute("SELECT 1 FROM enrollments WHERE course_id = %s AND student_id = %s LIMIT 1",
                        (course_id, current_user.student_id))
         if not cursor.fetchone():
+            cursor.close()
+            conn.close()
             flash("You don't have access to that course.", "error")
             return redirect(url_for('dashboard'))
 
@@ -1700,6 +1710,7 @@ def import_students():
             if raw is None or not reader.fieldnames or not expected_headers.issubset(set(reader.fieldnames)):
                 results = {"error": "That file doesn't look like a valid student CSV. "
                                      "Please use the provided template."}
+                return render_template("import_students.html", results=results)
             else:
 
                 added, updated, skipped = [], [], []

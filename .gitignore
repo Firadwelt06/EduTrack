@@ -3,7 +3,6 @@ SQL Scheme.sql
 .gitignore
 !database/schema.sql
 
-requirements.txt
 backups/
 logs/
 __pycache__/

@@ -5,6 +5,10 @@ courses, enrollments, and grades across academic years and semesters.
 Built as a hands-on security/DBA learning project — the goal is a genuinely
 production-conscious app, not just a portfolio demo.
 
+**Scope:** EduTrack currently targets one school's self-hosted installation.
+It is not a multi-tenant service and has not yet been declared production-ready.
+See the [versioned roadmap](ROADMAP.md) for the release gates toward 1.0.
+
 ## Features
 
 - **Role-based access control** (admin / teacher / student-parent), enforced
@@ -73,6 +77,13 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
+For development and tests, install the additional test dependencies:
+
+```powershell
+python -m pip install -r requirements-dev.txt
+python -m pytest
+```
+
 ### 2. Configure environment variables
 
 Copy `.env.example` to `.env` and fill in real values:
@@ -87,7 +98,9 @@ FLASK_DEBUG=false
 ```
 
 `SECRET_KEY` should be a long random string (used by Flask for session
-signing) — don't reuse the placeholder from `.env.example`.
+signing). Generate one with
+`python -c "import secrets; print(secrets.token_hex(32))"` and do not reuse
+the placeholder from `.env.example`.
 
 `FLASK_DEBUG` controls two things at once: Flask's interactive debugger, and
 whether session cookies get the `Secure` flag. Only set it to `true` for
@@ -96,6 +109,11 @@ else, since debug mode's interactive shell on unhandled exceptions is a
 remote-code-execution risk if it's ever reachable by anyone but you.
 
 ### 3. Create the database and import the schema
+
+**Only use this schema on a new, empty database.** It contains `DROP TABLE`
+statements and will delete existing tables and their data if run against an
+existing database. Existing installations need a migration path; that is
+planned before 1.0.
 
 ```sql
 CREATE DATABASE school_db;
@@ -189,12 +207,14 @@ EduTrack/
 ├── backups/                     # Encrypted daily backups (gitignored)
 ├── logs/                        # Rotating application logs (gitignored)
 ├── .env.example                 # Template for required environment variables
-└── requirements.txt
+└── requirements.txt             # Pinned application dependencies
 ```
 
 ## Known Limitations / In Progress
 
-This project is being built and audited incrementally. Currently open items:
+This project is being built and audited incrementally. See
+[ROADMAP.md](ROADMAP.md) for phased priorities and release acceptance gates.
+Current limitations include:
 
 - Backup restore-testing currently relies on the automated integrity check
   plus a manually-scheduled full restore test — there's no fully automated

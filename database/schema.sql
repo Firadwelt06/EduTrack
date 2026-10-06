@@ -36,15 +36,6 @@ CREATE TABLE `academic_years` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Dumping data for table `academic_years`
---
-
-LOCK TABLES `academic_years` WRITE;
-/*!40000 ALTER TABLE `academic_years` DISABLE KEYS */;
-INSERT INTO `academic_years` VALUES (1,'2026-2027','2026-09-01','2027-06-15',1);
-/*!40000 ALTER TABLE `academic_years` ENABLE KEYS */;
-UNLOCK TABLES;
-
 --
 -- Table structure for table `courses`
 --
@@ -65,15 +56,6 @@ CREATE TABLE `courses` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Dumping data for table `courses`
---
-
-LOCK TABLES `courses` WRITE;
-/*!40000 ALTER TABLE `courses` DISABLE KEYS */;
-INSERT INTO `courses` VALUES (1,'Intro to Python','Learn programming fundamentals',25,1),(2,'Database Design','Relational databases and SQL',20,1),(3,'Calculus I','Limits and derivatives',30,2),(4,'Algebra 2','Quadratic functions and polynomials',25,1),(5,'US History','From colonies to civil rights',30,2);
-/*!40000 ALTER TABLE `courses` ENABLE KEYS */;
-UNLOCK TABLES;
-
 --
 -- Table structure for table `enrollments`
 --
@@ -102,15 +84,6 @@ CREATE TABLE `enrollments` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Dumping data for table `enrollments`
---
-
-LOCK TABLES `enrollments` WRITE;
-/*!40000 ALTER TABLE `enrollments` DISABLE KEYS */;
-INSERT INTO `enrollments` VALUES (1,1,1,'2026-06-09','D',1,1),(2,1,3,'2026-06-09','S',1,1),(3,2,2,'2026-06-09','S',1,1),(5,3,1,'2026-06-09','S',1,1),(6,3,2,'2026-06-09','S',1,1),(12,4,4,'2026-06-15','S',1,1),(15,5,1,'2026-06-18','A',1,1),(16,6,4,'2026-07-08','A',1,1);
-/*!40000 ALTER TABLE `enrollments` ENABLE KEYS */;
-UNLOCK TABLES;
-
 --
 -- Table structure for table `semesters`
 --
@@ -132,15 +105,6 @@ CREATE TABLE `semesters` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Dumping data for table `semesters`
---
-
-LOCK TABLES `semesters` WRITE;
-/*!40000 ALTER TABLE `semesters` DISABLE KEYS */;
-INSERT INTO `semesters` VALUES (1,1,'Fall','2026-09-01','2026-12-20',1),(2,1,'Spring','2027-01-10','2027-06-15',2);
-/*!40000 ALTER TABLE `semesters` ENABLE KEYS */;
-UNLOCK TABLES;
-
 --
 -- Table structure for table `students`
 --
@@ -167,15 +131,6 @@ CREATE TABLE `students` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Dumping data for table `students`
---
-
-LOCK TABLES `students` WRITE;
-/*!40000 ALTER TABLE `students` DISABLE KEYS */;
-INSERT INTO `students` VALUES (1,'Grace',NULL,'Hopper',NULL,'grace@student.edu',NULL,NULL,NULL,11,'2026-06-09'),(2,'Dennis',NULL,'Ritchie',NULL,'dennis@student.edu',NULL,NULL,NULL,10,'2026-06-09'),(3,'Ibrahim',NULL,'Toheeb',NULL,'Ibrahimtoheeb5646@gmail.com',NULL,NULL,NULL,9,'2026-06-09'),(4,'Emmanuel','Chigozirim','Adaeze','2007-05-14','emmanuelchigozie222@gmail.com','my is school is my home','Jehovah','08022334121',12,'2026-06-15'),(5,'Emmie','Sanders','Ruth','2026-02-18','emmiesanders123@gmail.com','I leave on a laptop','My Provider','08022334121',10,'2026-06-18'),(6,'Nnamidi','Pure','Gideon','2007-05-14','Nnamidigideon345@gmail.com','Allen avenue, new owerri road','Mr Nnamidi','08022334121',12,'2026-07-08');
-/*!40000 ALTER TABLE `students` ENABLE KEYS */;
-UNLOCK TABLES;
-
 --
 -- Table structure for table `teachers`
 --
@@ -195,15 +150,6 @@ CREATE TABLE `teachers` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Dumping data for table `teachers`
---
-
-LOCK TABLES `teachers` WRITE;
-/*!40000 ALTER TABLE `teachers` DISABLE KEYS */;
-INSERT INTO `teachers` VALUES (1,'Ada','Lovelace','ada@school.edu','2020-08-15'),(2,'Alan','Turing','alan@school.edu','2019-09-01'),(3,'Richard','Benson','Richardben2233@outlook.com','2026-06-09');
-/*!40000 ALTER TABLE `teachers` ENABLE KEYS */;
-UNLOCK TABLES;
-
 --
 -- Table structure for table `users`
 --
@@ -230,14 +176,6 @@ CREATE TABLE `users` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
--- Dumping data for table `users`
---
-
-LOCK TABLES `users` WRITE;
-/*!40000 ALTER TABLE `users` DISABLE KEYS */;
-INSERT INTO `users` VALUES (1,'admin','scrypt:32768:8:1$sSsT6lvqtOAFnqDn$944539d87767daeb9ad447dbacf864a257ecf754f5bc3d9f3541b57b19cfd03f4e5933ff77634cda1b9819735ed28d86549c99fd9e5ade7a92b5822c1c91f0c5','admin','2026-06-15 14:04:09',NULL,NULL,0),(3,'Adalovelace','scrypt:32768:8:1$FFz8tsrcv9ONejvq$8b92f658951c983aff07469c67d2f52d25eca972d29c13258b68b024827cb3bf403924ab5170d4f81297c3d6a76b962e2c22f01fa42ab6a7635dc927958c7095','teacher','2026-07-07 06:28:26',NULL,1,1),(4,'emmanuelruth','scrypt:32768:8:1$pVbTqbddDV6SYWPP$a47c73889d3f22b63227c00f0a0412455f339da511936c120b05b6fd5a6366d05836c76ed3900bcbdf7e287c79c3f03dd079cc9cb18f802d50b0bcd68aa3cb35','student','2026-07-07 06:29:22',5,NULL,1);
-/*!40000 ALTER TABLE `users` ENABLE KEYS */;
-UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
