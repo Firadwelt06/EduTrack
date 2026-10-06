@@ -41,9 +41,15 @@ documentation agree with the repository.
 
 **Progress:** Initial regression coverage is in place for route access, CSRF,
 student CSV rejection and formula neutralization, login backoff, invalid
-grades, and non-admin enrollment attempts. The covered defects have been
-fixed. Broader grade-ownership, database-backed workflow, and supported
-deployment checks are still outstanding.
+grades, teacher grade ownership and dashboard scoping, student course privacy,
+valid student import, student change audit events, and the empty install
+schema (including the audit table). The covered defects have been fixed.
+Student imports use per-row savepoints so a failed audit write cannot leave
+that row partially committed, and academic-year selection changes are atomic.
+Tests currently use mocked database connections; live MySQL integration and
+supported deployment checks remain outstanding. A Windows/Python 3.14 GitHub
+Actions workflow is defined; it still needs a successful run in GitHub after
+publication.
 
 **Acceptance:** Automated checks run from a clean checkout; sensitive route
 tests demonstrate both allowed and denied access; no known critical

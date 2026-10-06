@@ -487,38 +487,52 @@ def dashboard():
                 selected_year_id=selected_year_id, selected_semester_id=selected_semester_id,
                 my_grades=my_grades, gpa=gpa)
 
-    # Admin & teacher: existing school-wide metrics
+    if current_user.role not in ('admin', 'teacher'):
+        cursor.close()
+        conn.close()
+        abort(403)
+
+    # Admin and teacher metrics, scoped to the teacher's own courses.
     metrics = {"students": 0, "courses": 0, "enrollments": 0}
     top_students = []
     grade_distribution = []
 
     if selected_semester_id:
+        course_scope = ""
+        semester_params = [selected_semester_id]
+        if current_user.role == 'teacher':
+            course_scope = " AND e.course_id IN (SELECT course_id FROM courses WHERE teacher_id = %s)"
+            semester_params.append(current_user.teacher_id)
+
         # Active students
-        cursor.execute("""
-            SELECT COUNT(DISTINCT student_id) as count 
-            FROM enrollments 
-            WHERE semester_id = %s
-        """, (selected_semester_id,))
+        cursor.execute(f"""
+            SELECT COUNT(DISTINCT e.student_id) as count
+            FROM enrollments e
+            WHERE e.semester_id = %s
+            {course_scope}
+        """, semester_params)
         metrics["students"] = cursor.fetchone()["count"]
 
         # Active courses
-        cursor.execute("""
-            SELECT COUNT(DISTINCT course_id) as count 
-            FROM enrollments 
-            WHERE semester_id = %s
-        """, (selected_semester_id,))
+        cursor.execute(f"""
+            SELECT COUNT(DISTINCT e.course_id) as count
+            FROM enrollments e
+            WHERE e.semester_id = %s
+            {course_scope}
+        """, semester_params)
         metrics["courses"] = cursor.fetchone()["count"]
 
         # Total enrollments
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT COUNT(*) as count 
-            FROM enrollments 
-            WHERE semester_id = %s
-        """, (selected_semester_id,))
+            FROM enrollments e
+            WHERE e.semester_id = %s
+            {course_scope}
+        """, semester_params)
         metrics["enrollments"] = cursor.fetchone()["count"]
 
         # Grades for GPA calculation
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT 
                 s.student_id,
                 CONCAT(s.first_name, ' ', COALESCE(s.middle_name, ''), ' ', s.last_name) AS student_name,
@@ -528,7 +542,8 @@ def dashboard():
             JOIN students s ON e.student_id = s.student_id
             WHERE e.semester_id = %s
             AND e.final_grade IS NOT NULL
-        """, (selected_semester_id,))
+            {course_scope}
+        """, semester_params)
         raw_grades = cursor.fetchall()
 
         # Calculate GPA per student in Python
@@ -559,14 +574,15 @@ def dashboard():
         top_students = sorted(top_students, key=lambda x: x["gpa"], reverse=True)[:10]
 
         # Grade distribution
-        cursor.execute("""
-            SELECT final_grade, COUNT(*) as count
-            FROM enrollments
-            WHERE semester_id = %s
-            AND final_grade IS NOT NULL
-            GROUP BY final_grade
-            ORDER BY FIELD(final_grade, 'S', 'A', 'B', 'C', 'D', 'F')
-        """, (selected_semester_id,))
+        cursor.execute(f"""
+            SELECT e.final_grade, COUNT(*) as count
+            FROM enrollments e
+            WHERE e.semester_id = %s
+            AND e.final_grade IS NOT NULL
+            {course_scope}
+            GROUP BY e.final_grade
+            ORDER BY FIELD(e.final_grade, 'S', 'A', 'B', 'C', 'D', 'F')
+        """, semester_params)
         grade_distribution = cursor.fetchall()
 
     cursor.close()
@@ -755,6 +771,10 @@ def student_detail(student_id):
             conn.close()
             flash("You don't have access to that student's record.", "error")
             return redirect(url_for('dashboard'))
+    else:
+        cursor.close()
+        conn.close()
+        abort(403)
 
     # ... rest of the existing route logic continues unchanged below
 
@@ -873,6 +893,10 @@ def add_student():
                     (fname, mname, lname, date_of_birth, email, 
                      address, guardian_name, guardian_phone, grade_level)
                 )
+                log_audit(cursor, "create", "student", cursor.lastrowid,
+                          {"fields": ["first_name", "middle_name", "last_name",
+                                      "date_of_birth", "email", "address",
+                                      "guardian_name", "guardian_phone", "grade_level"]})
                 conn.commit()
                 success = f"Student {fname} {lname} added successfully."
             except mysql.connector.IntegrityError:
@@ -1038,6 +1062,7 @@ def grades():
 # Courses
 @app.route("/courses")
 @login_required
+@roles_required("admin", "teacher", "student")
 def courses():
     conn = get_conn()
     cursor = conn.cursor(dictionary=True, buffered=True)
@@ -1120,6 +1145,10 @@ def course_detail(course_id):
             conn.close()
             flash("You don't have access to that course.", "error")
             return redirect(url_for('dashboard'))
+    else:
+        cursor.close()
+        conn.close()
+        abort(403)
 
     selected_year_id = request.args.get("year_id", type=int)
     selected_semester_id = request.args.get("semester_id", type=int)
@@ -1170,7 +1199,13 @@ def course_detail(course_id):
     enrollment_count = 0
 
     if selected_semester_id:
-        cursor.execute("""
+        student_scope = ""
+        course_params = [course_id, selected_semester_id]
+        if current_user.role == 'student':
+            student_scope = " AND e.student_id = %s"
+            course_params.append(current_user.student_id)
+
+        cursor.execute(f"""
             SELECT 
                 CONCAT(s.first_name, ' ', COALESCE(s.middle_name, ''), ' ', s.last_name) AS student_name,
                 s.grade_level,
@@ -1180,21 +1215,23 @@ def course_detail(course_id):
             JOIN students s ON e.student_id = s.student_id
             WHERE e.course_id = %s
             AND e.semester_id = %s
+            {student_scope}
             ORDER BY s.last_name
-        """, (course_id, selected_semester_id))
+        """, course_params)
         students = cursor.fetchall()
         enrollment_count = len(students)
 
         # Grade distribution
-        cursor.execute("""
-            SELECT final_grade, COUNT(*) as count
-            FROM enrollments
-            WHERE course_id = %s
-            AND semester_id = %s
-            AND final_grade IS NOT NULL
-            GROUP BY final_grade
-            ORDER BY FIELD(final_grade, 'S', 'A', 'B', 'C', 'D', 'F')
-        """, (course_id, selected_semester_id))
+        cursor.execute(f"""
+            SELECT e.final_grade, COUNT(*) as count
+            FROM enrollments e
+            WHERE e.course_id = %s
+            AND e.semester_id = %s
+            {student_scope}
+            AND e.final_grade IS NOT NULL
+            GROUP BY e.final_grade
+            ORDER BY FIELD(e.final_grade, 'S', 'A', 'B', 'C', 'D', 'F')
+        """, course_params)
         grade_distribution = cursor.fetchall()
 
     cursor.close()
@@ -1233,7 +1270,6 @@ def settings():
             try:
                 if is_current:
                     cursor.execute("UPDATE academic_years SET is_current = 0")
-                    conn.commit()
                 cursor.execute(
                     "INSERT INTO academic_years (year_name, is_current) VALUES (%s, %s)",
                     (year_name, is_current)
@@ -1242,6 +1278,7 @@ def settings():
                 success = f"Academic year {year_name} added."
                 active_tab = "academic"
             except mysql.connector.IntegrityError:
+                conn.rollback()
                 error = "That academic year already exists."
 
     elif request.method == "POST" and request.form.get("action") == "add_semester":
@@ -1266,14 +1303,23 @@ def settings():
     elif request.method == "POST" and request.form.get("action") == "set_current_year":
         year_id = request.form.get("year_id")
         if year_id:
-            cursor.execute("UPDATE academic_years SET is_current = 0")
-            conn.commit()
             cursor.execute(
-                "UPDATE academic_years SET is_current = 1 WHERE year_id = %s",
+                "SELECT year_id FROM academic_years WHERE year_id = %s",
                 (year_id,)
             )
-            conn.commit()
-            success = "Current academic year updated."
+            if cursor.fetchone():
+                cursor.execute("UPDATE academic_years SET is_current = 0")
+                cursor.execute(
+                    "UPDATE academic_years SET is_current = 1 WHERE year_id = %s",
+                    (year_id,)
+                )
+                conn.commit()
+                success = "Current academic year updated."
+            else:
+                error = "That academic year does not exist."
+            active_tab = "academic"
+        else:
+            error = "Select an academic year."
             active_tab = "academic"
 
     # ── TEACHERS ──
@@ -1647,6 +1693,10 @@ def edit_student(student_id):
                     WHERE student_id = %s
                 """, (fname, mname, lname, date_of_birth, email, address,
                       guardian_name, guardian_phone, grade_level, student_id))
+                log_audit(cursor, "update", "student", student_id,
+                          {"fields": ["first_name", "middle_name", "last_name",
+                                      "date_of_birth", "email", "address",
+                                      "guardian_name", "guardian_phone", "grade_level"]})
                 conn.commit()
                 cursor.close()
                 conn.close()
@@ -1738,9 +1788,12 @@ def import_students():
                     skipped.append((row_num, f"Invalid grade_level: {grade_level}"))
                     continue
 
+                savepoint = f"student_import_{row_num}"
+                cursor.execute(f"SAVEPOINT {savepoint}")
                 try:
                     cursor.execute("SELECT * FROM students WHERE email = %s", (email,))
                     existing = cursor.fetchone()
+                    row_result = None
 
                     new_values = {
                         "first_name": fname, "middle_name": mname, "last_name": lname,
@@ -1763,7 +1816,11 @@ def import_students():
                                 WHERE email=%s
                             """, (fname, mname, lname, dob, address, guardian_name,
                                   guardian_phone, grade_level, email))
-                            updated.append((email, changes))
+                            log_audit(
+                                cursor, "update", "student", existing["student_id"],
+                                {"fields": [change.split(":", 1)[0] for change in changes]},
+                            )
+                            row_result = ("updated", (email, changes))
                     else:
                         cursor.execute("""
                             INSERT INTO students (first_name, middle_name, last_name,
@@ -1771,9 +1828,19 @@ def import_students():
                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                         """, (fname, mname, lname, dob, email, address,
                               guardian_name, guardian_phone, grade_level))
-                        added.append(email)
+                        log_audit(cursor, "create", "student", cursor.lastrowid,
+                                  {"fields": list(new_values)})
+                        row_result = ("added", email)
 
+                    cursor.execute(f"RELEASE SAVEPOINT {savepoint}")
+                    if row_result:
+                        if row_result[0] == "updated":
+                            updated.append(row_result[1])
+                        else:
+                            added.append(row_result[1])
                 except mysql.connector.Error as e:
+                    cursor.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                    cursor.execute(f"RELEASE SAVEPOINT {savepoint}")
                     ref = log_db_error(e)
                     skipped.append((row_num, f"Internal error (ref: {ref}) — this row was skipped."))
 

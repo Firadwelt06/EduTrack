@@ -40,9 +40,10 @@ See the [versioned roadmap](ROADMAP.md) for the release gates toward 1.0.
   a generic message with a short reference code instead of raw exception
   text — closing an information-disclosure gap without losing debuggability.
 - **Audit trail** for grade changes, enrollments, and deletions (academic
-  years, semesters, teachers, courses): who did it, what changed (old/new
-  values where relevant), and when — viewable by admins at `/audit-log`,
-  filterable by entity type.
+  years/semesters/teachers/courses), plus student creation, edits, and CSV
+  imports: who did it, what kind of change occurred, and when — viewable by
+  admins at `/audit-log`, filterable by entity type. Student audit details
+  record changed field names rather than copying sensitive field values.
 - **CSV student import** hardened against more than just a bad file
   extension: content is sanity-checked against expected headers before
   parsing, fields are sanitized against spreadsheet formula injection
@@ -59,10 +60,16 @@ See the [versioned roadmap](ROADMAP.md) for the release gates toward 1.0.
 
 ## Tech Stack
 
-- Python 3 / Flask
-- MySQL (developed against MySQL Server 8.0)
+- Python 3.14 / Flask 3.1
+- MySQL Server 8.0 (developed against 8.0.44; not yet validated across a
+  supported-version matrix)
 - Flask-Login, Flask-WTF, Flask-Limiter, werkzeug
 - `cryptography` + `keyring` for backup encryption
+
+The automated test suite runs on Windows with Python 3.14 and does not require
+a MySQL server; database calls are mocked in route tests. This validates
+application behavior in isolation, not a production deployment or live MySQL
+upgrade.
 
 ## Setup
 
@@ -83,6 +90,9 @@ For development and tests, install the additional test dependencies:
 python -m pip install -r requirements-dev.txt
 python -m pytest
 ```
+
+Tests use an isolated test-only Flask secret and mocked database connections.
+Do not point test runs at a school database.
 
 ### 2. Configure environment variables
 

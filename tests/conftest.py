@@ -10,6 +10,7 @@ def client(monkeypatch):
         SECRET_KEY="test-only-secret-key-do-not-use-outside-tests",
         SESSION_COOKIE_SECURE=False,
         WTF_CSRF_ENABLED=True,
+        RATELIMIT_ENABLED=False,
     )
     users = {}
     monkeypatch.setattr(
