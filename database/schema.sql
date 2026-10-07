@@ -21,10 +21,9 @@ USE `school_db`;
 -- Table structure for table `academic_years`
 --
 
-DROP TABLE IF EXISTS `academic_years`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `academic_years` (
+CREATE TABLE IF NOT EXISTS `academic_years` (
   `year_id` int NOT NULL AUTO_INCREMENT,
   `year_name` varchar(20) NOT NULL,
   `start_date` date NOT NULL,
@@ -32,7 +31,7 @@ CREATE TABLE `academic_years` (
   `is_current` tinyint(1) DEFAULT '0',
   PRIMARY KEY (`year_id`),
   UNIQUE KEY `year_name` (`year_name`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -40,10 +39,9 @@ CREATE TABLE `academic_years` (
 -- Table structure for table `courses`
 --
 
-DROP TABLE IF EXISTS `courses`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `courses` (
+CREATE TABLE IF NOT EXISTS `courses` (
   `course_id` int NOT NULL AUTO_INCREMENT,
   `course_name` varchar(100) NOT NULL,
   `description` text,
@@ -52,7 +50,7 @@ CREATE TABLE `courses` (
   PRIMARY KEY (`course_id`),
   KEY `teacher_id` (`teacher_id`),
   CONSTRAINT `courses_ibfk_1` FOREIGN KEY (`teacher_id`) REFERENCES `teachers` (`teacher_id`) ON DELETE RESTRICT ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -60,10 +58,9 @@ CREATE TABLE `courses` (
 -- Table structure for table `enrollments`
 --
 
-DROP TABLE IF EXISTS `enrollments`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `enrollments` (
+CREATE TABLE IF NOT EXISTS `enrollments` (
   `enrollment_id` int NOT NULL AUTO_INCREMENT,
   `student_id` int NOT NULL,
   `course_id` int NOT NULL,
@@ -80,7 +77,7 @@ CREATE TABLE `enrollments` (
   CONSTRAINT `enrollments_ibfk_2` FOREIGN KEY (`course_id`) REFERENCES `courses` (`course_id`) ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT `enrollments_ibfk_3` FOREIGN KEY (`semester_id`) REFERENCES `semesters` (`semester_id`),
   CONSTRAINT `enrollments_ibfk_4` FOREIGN KEY (`academic_year_id`) REFERENCES `academic_years` (`year_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -88,10 +85,9 @@ CREATE TABLE `enrollments` (
 -- Table structure for table `semesters`
 --
 
-DROP TABLE IF EXISTS `semesters`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `semesters` (
+CREATE TABLE IF NOT EXISTS `semesters` (
   `semester_id` int NOT NULL AUTO_INCREMENT,
   `year_id` int NOT NULL,
   `semester_name` varchar(20) NOT NULL,
@@ -101,7 +97,7 @@ CREATE TABLE `semesters` (
   PRIMARY KEY (`semester_id`),
   UNIQUE KEY `unique_semester` (`year_id`,`semester_name`),
   CONSTRAINT `semesters_ibfk_1` FOREIGN KEY (`year_id`) REFERENCES `academic_years` (`year_id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -109,10 +105,9 @@ CREATE TABLE `semesters` (
 -- Table structure for table `students`
 --
 
-DROP TABLE IF EXISTS `students`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `students` (
+CREATE TABLE IF NOT EXISTS `students` (
   `student_id` int NOT NULL AUTO_INCREMENT,
   `first_name` varchar(50) NOT NULL,
   `middle_name` varchar(50) DEFAULT NULL,
@@ -127,7 +122,7 @@ CREATE TABLE `students` (
   PRIMARY KEY (`student_id`),
   UNIQUE KEY `email` (`email`),
   CONSTRAINT `students_chk_1` CHECK ((`grade_level` between 9 and 12))
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -135,10 +130,9 @@ CREATE TABLE `students` (
 -- Table structure for table `teachers`
 --
 
-DROP TABLE IF EXISTS `teachers`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `teachers` (
+CREATE TABLE IF NOT EXISTS `teachers` (
   `teacher_id` int NOT NULL AUTO_INCREMENT,
   `first_name` varchar(50) NOT NULL,
   `last_name` varchar(50) NOT NULL,
@@ -146,7 +140,7 @@ CREATE TABLE `teachers` (
   `hire_date` date NOT NULL,
   PRIMARY KEY (`teacher_id`),
   UNIQUE KEY `email` (`email`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -154,10 +148,9 @@ CREATE TABLE `teachers` (
 -- Table structure for table `users`
 --
 
-DROP TABLE IF EXISTS `users`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `users` (
+CREATE TABLE IF NOT EXISTS `users` (
   `user_id` int NOT NULL AUTO_INCREMENT,
   `username` varchar(50) NOT NULL,
   `password_hash` varchar(255) DEFAULT NULL,
@@ -166,23 +159,24 @@ CREATE TABLE `users` (
   `student_id` int DEFAULT NULL,
   `teacher_id` int DEFAULT NULL,
   `must_change_password` tinyint(1) NOT NULL DEFAULT '0',
+  `failed_login_attempts` int NOT NULL DEFAULT '0',
+  `locked_until` datetime DEFAULT NULL,
   PRIMARY KEY (`user_id`),
   UNIQUE KEY `username` (`username`),
   KEY `fk_users_student` (`student_id`),
   KEY `fk_users_teacher` (`teacher_id`),
   CONSTRAINT `fk_users_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`student_id`),
   CONSTRAINT `fk_users_teacher` FOREIGN KEY (`teacher_id`) REFERENCES `teachers` (`teacher_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
 -- Table structure for table `audit_log`
 --
 
-DROP TABLE IF EXISTS `audit_log`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `audit_log` (
+CREATE TABLE IF NOT EXISTS `audit_log` (
   `log_id` bigint NOT NULL AUTO_INCREMENT,
   `user_id` int DEFAULT NULL,
   `username` varchar(50) NOT NULL,

@@ -55,7 +55,7 @@ publication.
 tests demonstrate both allowed and denied access; no known critical
 authorization or data-integrity defect remains.
 
-### 0.4 — Maintainable application and database changes
+### 0.4 — Maintainable application and database changes (in progress)
 
 **Focus:** Make changes safer to build and upgrade.
 
@@ -65,6 +65,12 @@ authorization or data-integrity defect remains.
   dump as the upgrade mechanism.
 - Add consistent connection cleanup, transaction boundaries, and explicit
   error reporting.
+
+**Progress:** MySQL connection creation is separated into a database module;
+an ordered migration runner and initial retry-safe migration are available
+through `manage.py`. The bootstrap schema is now idempotent and no longer
+drops existing tables. App-factory/routes modularization and live MySQL
+upgrade verification remain outstanding.
 
 **Acceptance:** A new database can be created and upgraded through migrations;
 an existing installation has a documented, tested upgrade path.

@@ -643,9 +643,9 @@ def test_install_schema_defines_tables_without_seeded_records():
     schema_path = Path(__file__).parents[1] / "database" / "schema.sql"
     schema = schema_path.read_text(encoding="utf-8")
 
-    assert "CREATE TABLE `students`" in schema
-    assert "CREATE TABLE `users`" in schema
-    assert "CREATE TABLE `audit_log`" in schema
+    assert "CREATE TABLE IF NOT EXISTS `students`" in schema
+    assert "CREATE TABLE IF NOT EXISTS `users`" in schema
+    assert "CREATE TABLE IF NOT EXISTS `audit_log`" in schema
     assert "INSERT INTO" not in schema.upper()
 
 

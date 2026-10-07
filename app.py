@@ -10,6 +10,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from dotenv import load_dotenv
 import mysql.connector
+from database.connection import get_connection
 import os
 import subprocess
 from datetime import datetime, timedelta
@@ -302,15 +303,8 @@ def load_user(user_id):
                     user.get("must_change_password", 0))
     return None
 
-# Connect to MySQL database
-def get_conn():
-    return mysql.connector.connect(
-        host=os.getenv('DB_HOST'),
-        user=os.getenv('DB_USERNAME'),
-        password=os.getenv('DB_PASSWORD'),
-        database=os.getenv('DB_DATABASE'),
-        auth_plugin='mysql_native_password'
-    )
+# Keep the historical helper name for scripts that import it.
+get_conn = get_connection
 
 # Any authenticated user with a pending forced password reset gets redirected
 # to /account/password no matter what URL they request, until they set a new

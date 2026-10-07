@@ -120,10 +120,9 @@ remote-code-execution risk if it's ever reachable by anyone but you.
 
 ### 3. Create the database and import the schema
 
-**Only use this schema on a new, empty database.** It contains `DROP TABLE`
-statements and will delete existing tables and their data if run against an
-existing database. Existing installations need a migration path; that is
-planned before 1.0.
+This bootstrap schema creates missing tables but does not alter existing
+tables or insert sample records. It is suitable for a new, empty database;
+existing installations should use the migration command below.
 
 ```sql
 CREATE DATABASE school_db;
@@ -133,7 +132,53 @@ CREATE DATABASE school_db;
 mysql -u your_username -p school_db < database\schema.sql
 ```
 
-### 4. Create the first admin account
+### 4. Configure migration credentials and apply schema migrations
+
+The application runtime account needs data access but should not have
+schema-changing privileges. Create it separately and grant only the CRUD
+permissions used by the application:
+
+```sql
+CREATE USER 'school_app'@'localhost' IDENTIFIED BY 'use-a-unique-secret';
+GRANT SELECT, INSERT, UPDATE, DELETE
+ON school_db.* TO 'school_app'@'localhost';
+```
+
+The `UPDATE` permission is required for login backoff and normal record
+updates. `DB_USERNAME` and `DB_PASSWORD` in `.env` must match this account.
+The encrypted backup command also uses the runtime account and requires read
+access to the database.
+
+Create a separate migration account with schema-changing privileges:
+
+```sql
+CREATE USER 'school_migrator'@'localhost' IDENTIFIED BY 'use-a-unique-secret';
+GRANT SELECT, INSERT, CREATE, ALTER, INDEX
+ON school_db.* TO 'school_migrator'@'localhost';
+```
+
+Set `DB_MIGRATION_USERNAME` and `DB_MIGRATION_PASSWORD` in `.env` to that
+account, then apply pending changes:
+
+```powershell
+python manage.py db upgrade
+python manage.py db current
+```
+
+The migration runner applies ordered, retry-safe migrations and records each
+version in `schema_migrations`. It adds the login-backoff columns and audit
+table without dropping existing records.
+
+Future schema changes should be added as the next
+`database/migrations/vNNNN_descriptive_name.py` file with an
+`upgrade(cursor)` function. Keep migrations additive and safe to retry:
+MySQL may implicitly commit DDL before a migration is recorded.
+
+For an existing installation, take and verify a backup first. Do **not**
+re-import the bootstrap schema; set the migration credentials and run
+`python manage.py db upgrade`.
+
+### 5. Create the first admin account
 
 The app has no public registration route by design — accounts are
 provisioned directly. Generate a proper password hash:
@@ -154,7 +199,7 @@ HaveIBeenPwned check only runs through the app's own change-password flow,
 not this manual insert, so pick something that isn't a known breached
 password anyway.
 
-### 5. (Optional) Enable encrypted backups
+### 6. (Optional) Enable encrypted backups
 
 Requires `mysqldump.exe` — update the `MYSQLDUMP_PATH` constant in `app.py`
 if your MySQL install location differs from the default. Then seed the
@@ -210,7 +255,7 @@ well-formed — pair it with an occasional full manual restore into a scratch
 database, done by a human, on whatever cadence you're comfortable with
 (monthly is a reasonable starting point).
 
-### 6. Run the app
+### 7. Run the app
 
 ```powershell
 python app.py
