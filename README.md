@@ -164,6 +164,20 @@ backup encryption passphrase once per machine:
 python setup_backup_encryption.py
 ```
 
+The MySQL account used by the app needs read access for dumps in addition to
+the privileges required for the app itself. A database administrator can
+grant the backup-specific permissions with:
+
+```sql
+GRANT SELECT, SHOW VIEW, TRIGGER
+ON school_db.* TO 'school_app'@'localhost';
+```
+
+Replace the database, username, and MySQL host account with the values used
+by your installation. The backup command uses a temporary, ACL-restricted
+MySQL option file instead of placing the database password on the command
+line, and uses a single transaction for a consistent InnoDB dump.
+
 This stores the passphrase in Windows Credential Manager. Backups run
 automatically on app startup (`run_daily_backup()`), skipping if a backup
 for the current day already exists.

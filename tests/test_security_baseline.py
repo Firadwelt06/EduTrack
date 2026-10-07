@@ -647,3 +647,75 @@ def test_install_schema_defines_tables_without_seeded_records():
     assert "CREATE TABLE `users`" in schema
     assert "CREATE TABLE `audit_log`" in schema
     assert "INSERT INTO" not in schema.upper()
+
+
+def test_daily_backup_uses_restricted_option_file_and_removes_it(client, monkeypatch, tmp_path):
+    backup_folder = tmp_path / "backups"
+    backup_folder.mkdir()
+    option_file = backup_folder / "mysqldump_opts_test.cnf"
+    option_file.write_text("[client]\npassword=test-only\n", encoding="utf-8")
+    commands = []
+
+    class FakeProcess:
+        stdout = io.BytesIO(b"CREATE TABLE example (id INT);")
+        returncode = 0
+
+        def __init__(self, command, stdout):
+            commands.append(command)
+
+        def wait(self):
+            return self.returncode
+
+    monkeypatch.setattr(edutrack, "BACKUP_FOLDER", str(backup_folder))
+    monkeypatch.setattr(edutrack, "create_secure_option_file", lambda: str(option_file))
+    monkeypatch.setattr(edutrack.keyring, "get_password", lambda *args: "backup-test-passphrase")
+    monkeypatch.setattr(edutrack.subprocess, "Popen", FakeProcess)
+    monkeypatch.setenv("DB_HOST", "localhost")
+    monkeypatch.setenv("DB_USERNAME", "school_app")
+    monkeypatch.setenv("DB_DATABASE", "school_db")
+    monkeypatch.setenv("DB_PASSWORD", "must-not-appear-in-process-arguments")
+
+    edutrack.run_daily_backup()
+
+    command = commands[0]
+    assert command[1] == f"--defaults-extra-file={option_file}"
+    assert "--single-transaction" in command
+    assert "--no-tablespaces" in command
+    assert not any(argument.startswith("-p") for argument in command)
+    assert "must-not-appear-in-process-arguments" not in " ".join(command)
+    assert not option_file.exists()
+    backup = next(backup_folder.glob("*.sql.enc"))
+    assert b"CREATE TABLE example" not in backup.read_bytes()
+
+
+def test_daily_backup_removes_partial_output_and_option_file_on_dump_failure(
+    client, monkeypatch, tmp_path, capsys
+):
+    backup_folder = tmp_path / "backups"
+    backup_folder.mkdir()
+    option_file = backup_folder / "mysqldump_opts_test.cnf"
+    option_file.write_text("[client]\npassword=test-only\n", encoding="utf-8")
+
+    class FailedProcess:
+        stdout = io.BytesIO(b"partial SQL")
+        returncode = 2
+
+        def __init__(self, command, stdout):
+            pass
+
+        def wait(self):
+            return self.returncode
+
+    monkeypatch.setattr(edutrack, "BACKUP_FOLDER", str(backup_folder))
+    monkeypatch.setattr(edutrack, "create_secure_option_file", lambda: str(option_file))
+    monkeypatch.setattr(edutrack.keyring, "get_password", lambda *args: "backup-test-passphrase")
+    monkeypatch.setattr(edutrack.subprocess, "Popen", FailedProcess)
+    monkeypatch.setenv("DB_HOST", "localhost")
+    monkeypatch.setenv("DB_USERNAME", "school_app")
+    monkeypatch.setenv("DB_DATABASE", "school_db")
+
+    edutrack.run_daily_backup()
+
+    assert "Backup failed:" in capsys.readouterr().out
+    assert not option_file.exists()
+    assert not list(backup_folder.glob("*.sql.enc"))

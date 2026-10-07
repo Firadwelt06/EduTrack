@@ -97,7 +97,9 @@ def run_daily_backup():
     mac = crypto_hmac.HMAC(hmac_key, hashes.SHA256())
 
     proc = None
+    option_file = None
     try:
+        option_file = create_secure_option_file()
         with open(backup_path, "wb") as out:
             # Header: salt + nonce. Not secret on their own -- only the
             # passphrase is -- but needed by the restore script to
@@ -107,10 +109,11 @@ def run_daily_backup():
 
             proc = subprocess.Popen([
                 MYSQLDUMP_PATH,
+                f"--defaults-extra-file={option_file}",
                 "--no-tablespaces",
+                "--single-transaction",
                 "-h", os.getenv("DB_HOST"),
                 "-u", os.getenv("DB_USERNAME"),
-                f"-p{os.getenv('DB_PASSWORD')}",  # TODO: swap for your defaults-extra-file approach
                 os.getenv("DB_DATABASE")
             ], stdout=subprocess.PIPE)
 
@@ -132,6 +135,11 @@ def run_daily_backup():
         if os.path.exists(backup_path):
             os.remove(backup_path)  # don't leave a partial/corrupt backup behind
         print(f"Backup failed: {e}")
+    finally:
+        if proc and proc.stdout and not proc.stdout.closed:
+            proc.stdout.close()
+        if option_file and os.path.exists(option_file):
+            os.remove(option_file)
 
 def cleanup_old_backups(days_to_keep=14):
     if not os.path.exists(BACKUP_FOLDER):
