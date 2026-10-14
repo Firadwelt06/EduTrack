@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS `enrollments` (
   `semester_id` int NOT NULL,
   `academic_year_id` int NOT NULL,
   PRIMARY KEY (`enrollment_id`),
-  UNIQUE KEY `unique_enrollment` (`student_id`,`course_id`),
+  UNIQUE KEY `unique_enrollment_period` (`student_id`,`course_id`,`semester_id`),
   KEY `course_id` (`course_id`),
   KEY `idx_enrollment_semester` (`semester_id`),
   KEY `idx_enrollment_year` (`academic_year_id`),

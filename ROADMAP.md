@@ -92,6 +92,15 @@ an existing installation has a documented, tested upgrade path.
 **Acceptance:** Staff can complete documented everyday tasks without direct
 database edits; failures do not leave partial or contradictory records.
 
+**Progress:** Admins can create and update teachers and courses, manage
+academic periods, enroll students, update grades, and remove enrollments with
+audit events. Enrollment checks verify the semester/year relationship and
+course capacity; a schema migration permits a student's enrollment in the
+same course across different semesters. Student and course lists support
+search and CSV export, with teacher and student access scopes enforced. More
+end-to-end workflow coverage and the live MySQL integration gate remain
+outstanding.
+
 ### 0.6 — Accessible, coherent user experience
 
 **Focus:** Make the product approachable and usable across devices.
@@ -104,6 +113,11 @@ database edits; failures do not leave partial or contradictory records.
 
 **Acceptance:** Core workflows pass a documented keyboard and responsive
 usability review, with no critical accessibility barriers.
+
+**Progress:** Shared navigation, focus styling, skip navigation, semantic
+landmarks, responsive layouts, reduced-motion support, labelled core forms,
+and explicit filter submission controls are in place. A documented keyboard
+and responsive usability review remains outstanding.
 
 ### 0.7 — Operational readiness
 

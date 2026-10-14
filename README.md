@@ -49,6 +49,14 @@ See the [versioned roadmap](ROADMAP.md) for the release gates toward 1.0.
   parsing, fields are sanitized against spreadsheet formula injection
   (e.g. `=HYPERLINK(...)`), and request size is capped to prevent memory
   exhaustion from an oversized upload.
+- **Staff workflow improvements** include editable teacher/course records,
+  audited enrollment removal, capacity-checked enrollment with per-semester
+  uniqueness, searchable course listings, and role-scoped student/course CSV
+  exports. Student course catalogs and exports are limited to courses the
+  student is enrolled in for the selected semester.
+- **Accessible responsive baseline** includes a skip link, semantic main
+  content and navigation, visible keyboard focus, labelled core forms and
+  filters, responsive navigation/cards, and reduced-motion support.
 - **Encrypted-at-rest daily backups**: `mysqldump` output is streamed
   straight into AES-256-CTR encryption with an HMAC-SHA256 integrity tag
   (encrypt-then-MAC) — plaintext SQL never touches disk. The encryption
@@ -194,7 +202,9 @@ python manage.py db current
 
 The migration runner applies ordered, retry-safe migrations and records each
 version in `schema_migrations`. It adds the login-backoff columns and audit
-table without dropping existing records.
+table without dropping existing records. Migration `0002` allows the same
+student to enroll in the same course in different semesters while retaining
+uniqueness within a semester.
 
 Future schema changes should be added as the next
 `database/migrations/vNNNN_descriptive_name.py` file with an

@@ -54,10 +54,22 @@ def test_existing_installation_upgrades_without_losing_user_data(monkeypatch):
             VALUES ('migration-sentinel', 'preserve-this-hash', 'admin')
             """
         )
+        cursor.execute(
+            """
+            CREATE TABLE enrollments (
+              enrollment_id int NOT NULL AUTO_INCREMENT,
+              student_id int NOT NULL,
+              course_id int NOT NULL,
+              semester_id int NOT NULL,
+              PRIMARY KEY (enrollment_id),
+              UNIQUE KEY unique_enrollment (student_id, course_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
         connection.commit()
 
-        assert upgrade(connection) == ["0001"]
-        assert current_versions(connection) == ["0001"]
+        assert upgrade(connection) == ["0001", "0002"]
+        assert current_versions(connection) == ["0001", "0002"]
 
         cursor.execute(
             """
@@ -82,10 +94,26 @@ def test_existing_installation_upgrades_without_losing_user_data(monkeypatch):
             """
         )
         assert cursor.fetchone()["table_count"] == 1
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS index_count
+            FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'enrollments'
+              AND INDEX_NAME = 'unique_enrollment_period'
+            """
+        )
+        assert cursor.fetchone()["index_count"] == 1
+        cursor.execute(
+            """
+            INSERT INTO enrollments (student_id, course_id, semester_id)
+            VALUES (17, 4, 1), (17, 4, 2)
+            """
+        )
     finally:
         if owns_schema_contents:
             cursor.execute(
-                "DROP TABLE IF EXISTS audit_log, schema_migrations, users"
+                "DROP TABLE IF EXISTS audit_log, schema_migrations, enrollments, users"
             )
             connection.commit()
         cursor.close()

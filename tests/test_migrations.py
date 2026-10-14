@@ -7,10 +7,11 @@ from database.migrations import runner
 
 
 class MigrationCursor:
-    def __init__(self, tables, columns, applied):
+    def __init__(self, tables, columns, applied, indexes):
         self.tables = tables
         self.columns = columns
         self.applied = applied
+        self.indexes = indexes
         self.result = []
         self.closed = False
         self.queries = []
@@ -20,18 +21,28 @@ class MigrationCursor:
         if "information_schema.TABLES" in query:
             if "TABLE_NAME = 'users'" in query:
                 count = int("users" in self.tables)
+            elif "TABLE_NAME = 'enrollments'" in query:
+                count = int("enrollments" in self.tables)
             else:
                 count = int((params or ("",))[0] in self.tables)
             self.result = [{"table_count": count}]
         elif "information_schema.COLUMNS" in query:
             column = query.rsplit("COLUMN_NAME = '", 1)[1].split("'", 1)[0]
             self.result = [{"column_count": int(column in self.columns)}]
+        elif "information_schema.STATISTICS" in query:
+            self.result = [
+                {"index_count": int((params or ("",))[0] in self.indexes)}
+            ]
         elif query.lstrip().startswith("CREATE TABLE"):
             table = query.split("`", 2)[1]
             self.tables.add(table)
         elif query.startswith("ALTER TABLE users ADD COLUMN"):
             column = query.split("ADD COLUMN", 1)[1].strip().split()[0]
             self.columns.add(column)
+        elif query.startswith("ALTER TABLE enrollments DROP INDEX"):
+            self.indexes.discard(query.rsplit(" ", 1)[-1])
+        elif query.lstrip().startswith("CREATE UNIQUE INDEX"):
+            self.indexes.add(query.split()[3])
         elif query.startswith("SELECT version FROM `schema_migrations`"):
             self.result = [{"version": version} for version in sorted(self.applied)]
         elif query.startswith("INSERT INTO `schema_migrations`"):
@@ -52,11 +63,20 @@ class MigrationCursor:
 
 
 class MigrationConnection:
-    def __init__(self, tables=("users",), columns=(), applied=()):
+    def __init__(
+        self,
+        tables=("users", "enrollments"),
+        columns=(),
+        applied=(),
+        indexes=("unique_enrollment",),
+    ):
         self.tables = set(tables)
         self.columns = set(columns)
         self.applied = set(applied)
-        self.fake_cursor = MigrationCursor(self.tables, self.columns, self.applied)
+        self.indexes = set(indexes)
+        self.fake_cursor = MigrationCursor(
+            self.tables, self.columns, self.applied, self.indexes
+        )
         self.commits = 0
         self.rollbacks = 0
 
@@ -76,25 +96,28 @@ def test_migration_adds_missing_schema_without_changing_existing_user_data():
 
     applied = runner.upgrade(connection)
 
-    assert applied == ["0001"]
+    assert applied == ["0001", "0002"]
     assert {"schema_migrations", "audit_log", "users"} <= connection.tables
     assert {"failed_login_attempts", "locked_until"} <= connection.columns
-    assert connection.applied == {"0001"}
+    assert connection.applied == {"0001", "0002"}
     assert user_rows == [{"user_id": 1, "username": "admin", "password_hash": "hash"}]
-    assert connection.commits == 2
+    assert connection.indexes == {"unique_enrollment_period"}
+    assert connection.commits == 3
     assert connection.rollbacks == 0
     assert connection.fake_cursor.closed
 
 
 def test_migration_runner_is_idempotent_after_first_upgrade():
     connection = MigrationConnection(
-        tables=("users", "schema_migrations", "audit_log"),
+        tables=("users", "enrollments", "schema_migrations", "audit_log"),
         columns=("failed_login_attempts", "locked_until"),
-        applied=("0001",),
+        applied=("0001", "0002"),
+        indexes=("unique_enrollment_period",),
     )
 
     assert runner.upgrade(connection) == []
-    assert connection.applied == {"0001"}
+    assert connection.applied == {"0001", "0002"}
+    assert connection.indexes == {"unique_enrollment_period"}
 
 
 def test_migration_runner_rejects_versions_newer_than_the_code():
@@ -156,6 +179,7 @@ def test_schema_bootstrap_is_idempotent_and_does_not_drop_existing_tables():
     assert schema.count("CREATE TABLE IF NOT EXISTS") == 8
     assert "`FAILED_LOGIN_ATTEMPTS` INT NOT NULL DEFAULT '0'" in schema
     assert "`LOCKED_UNTIL` DATETIME DEFAULT NULL" in schema
+    assert "`UNIQUE_ENROLLMENT_PERIOD` (`STUDENT_ID`,`COURSE_ID`,`SEMESTER_ID`)" in schema
 
 
 def test_application_connection_uses_explicit_runtime_credentials(monkeypatch):

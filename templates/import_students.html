@@ -11,9 +11,10 @@
 <p style="margin-bottom:15px;"><a href="/students/import/template">Download CSV template</a></p>
 
 <div class="card">
-    <form method="POST" enctype="multipart/form-data" style="display:flex; gap:10px; align-items:center;">
+    <form method="POST" enctype="multipart/form-data" class="filter-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="file" name="csv_file" accept=".csv" required>
+        <label for="student-csv">Student CSV file</label>
+        <input id="student-csv" type="file" name="csv_file" accept=".csv" required>
         <button type="submit" class="btn btn-primary">Upload &amp; Import</button>
     </form>
 </div>
@@ -21,9 +22,9 @@
 {% if results %}
 <div class="card">
     {% if results.error %}
-        <div class="alert alert-error">{{ results.error }}</div>
+        <div class="alert alert-error" role="alert">{{ results.error }}</div>
     {% else %}
-        <div class="alert alert-success">Added {{ results.added|length }}, updated {{ results.updated|length }}, skipped {{ results.skipped|length }}.</div>
+        <div class="alert alert-success" role="status">Added {{ results.added|length }}, updated {{ results.updated|length }}, skipped {{ results.skipped|length }}.</div>
 
         {% if results.updated %}
         <h2>Updated</h2>

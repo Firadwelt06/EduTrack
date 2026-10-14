@@ -129,6 +129,301 @@ def test_student_cannot_read_another_students_record(client, monkeypatch):
     assert connection.closed
 
 
+def test_student_course_catalog_only_includes_courses_for_selected_semester():
+    query, params = edutrack.routes._course_listing_query(
+        "student",
+        student_id=17,
+        semester_id=4,
+        search="Biology",
+    )
+
+    assert "access_enrollment.student_id = %s" in query
+    assert "access_enrollment.semester_id = %s" in query
+    assert "c.course_name LIKE %s" in query
+    assert params == [4, 17, 4, "%Biology%", "%Biology%"]
+
+
+def test_student_course_catalog_is_empty_without_a_selected_semester():
+    query, params = edutrack.routes._course_listing_query(
+        "student",
+        student_id=17,
+        semester_id=None,
+        search="",
+    )
+
+    assert "1 = 0" in query
+    assert params == [None]
+
+
+def test_student_course_export_keeps_enrollment_scope(client, monkeypatch):
+    test_client, users = client
+    authenticate(test_client, users, "student", student_id=17)
+    connection = FakeConnection(
+        all_results=[
+            [
+                {
+                    "course_name": "Biology",
+                    "teacher": "Alex Teacher",
+                    "capacity": 30,
+                    "enrolled": 18,
+                }
+            ]
+        ]
+    )
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
+
+    response = test_client.get(
+        "/courses/export?semester_id=4&search=Biology"
+    )
+
+    query, params = connection.fake_cursor.queries[0]
+    assert response.status_code == 200
+    assert response.mimetype == "text/csv"
+    assert b"Biology,Alex Teacher" in response.data
+    assert b"30" not in response.data
+    assert "access_enrollment.student_id = %s" in query
+    assert params == [4, 17, 4, "%Biology%", "%Biology%"]
+    assert connection.fake_cursor.closed
+    assert connection.closed
+
+
+def test_course_catalog_search_renders_accessible_controls_and_responsive_navigation(
+    client, monkeypatch
+):
+    test_client, users = client
+    authenticate(test_client, users, "admin")
+    connection = FakeConnection(
+        all_results=[
+            [{"year_id": 1, "year_name": "2026-2027"}],
+            [{"semester_id": 4, "semester_name": "Fall"}],
+            [
+                {
+                    "course_id": 2,
+                    "course_name": "Biology",
+                    "capacity": 20,
+                    "teacher": "Alex Teacher",
+                    "enrolled": 8,
+                }
+            ],
+        ]
+    )
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
+
+    response = test_client.get(
+        "/courses?year_id=1&semester_id=4&search=Biology"
+    )
+
+    assert response.status_code == 200
+    assert b'Skip to main content' in response.data
+    assert b'<main id="main-content"' in response.data
+    assert b'aria-label="Main navigation"' in response.data
+    assert b'@media (max-width: 760px)' in response.data
+    assert b'<label for="course-search">Search courses</label>' in response.data
+    assert "c.course_name LIKE %s" in connection.fake_cursor.queries[-1][0]
+    assert connection.fake_cursor.queries[-1][1] == [4, "%Biology%", "%Biology%"]
+
+
+def test_admin_can_remove_enrollment_with_audit_and_transaction(client, monkeypatch):
+    test_client, users = client
+    authenticate(test_client, users, "admin")
+    connection = FakeConnection(
+        one_results=[
+            {
+                "student_id": 17,
+                "course_id": 4,
+                "semester_id": 3,
+                "academic_year_id": 2,
+                "final_grade": "B",
+            }
+        ]
+    )
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
+
+    response = test_client.post(
+        "/grades/enrollment/9/delete",
+        data={"csrf_token": csrf_token(test_client)},
+    )
+
+    queries = connection.fake_cursor.queries
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/grades?year_id=2&semester_id=3"
+    assert any("DELETE FROM enrollments" in query for query, _ in queries)
+    assert any("INSERT INTO audit_log" in query for query, _ in queries)
+    assert connection.commits == 1
+    assert connection.fake_cursor.closed
+    assert connection.closed
+
+
+def test_admin_can_update_teacher_and_audit_change(client, monkeypatch):
+    test_client, users = client
+    authenticate(test_client, users, "admin")
+    connection = FakeConnection(
+        one_results=[
+            {
+                "first_name": "Alex",
+                "last_name": "Teacher",
+                "email": "alex@example.edu",
+                "hire_date": "2020-01-01",
+            }
+        ],
+        all_results=[[], [], [], []],
+    )
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
+
+    response = test_client.post(
+        "/settings?tab=teachers",
+        data={
+            "csrf_token": csrf_token(test_client),
+            "action": "update_teacher",
+            "teacher_id": "4",
+            "fname": "Alex",
+            "lname": "Educator",
+            "email": "alex@example.edu",
+            "hire_date": "2020-01-01",
+        },
+    )
+
+    queries = connection.fake_cursor.queries
+    assert response.status_code == 200
+    assert b"Teacher details updated." in response.data
+    assert any("UPDATE teachers" in query for query, _ in queries)
+    assert any("INSERT INTO audit_log" in query for query, _ in queries)
+    assert connection.commits == 1
+
+
+def test_admin_can_update_course_and_audit_change(client, monkeypatch):
+    test_client, users = client
+    authenticate(test_client, users, "admin")
+    connection = FakeConnection(
+        one_results=[
+            {
+                "course_name": "Biology",
+                "description": None,
+                "capacity": 30,
+                "teacher_id": 4,
+            },
+            {"count": 3},
+        ],
+        all_results=[[], [], [], []],
+    )
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
+
+    response = test_client.post(
+        "/settings?tab=courses",
+        data={
+            "csrf_token": csrf_token(test_client),
+            "action": "update_course",
+            "course_id": "2",
+            "course_name": "Advanced Biology",
+            "description": "Upper-level biology",
+            "capacity": "25",
+            "teacher_id": "4",
+        },
+    )
+
+    queries = connection.fake_cursor.queries
+    assert response.status_code == 200
+    assert b"Course details updated." in response.data
+    assert any("UPDATE courses" in query for query, _ in queries)
+    assert any("INSERT INTO audit_log" in query for query, _ in queries)
+    assert connection.commits == 1
+
+
+def test_admin_course_update_rejects_capacity_outside_supported_range(
+    client, monkeypatch
+):
+    test_client, users = client
+    authenticate(test_client, users, "admin")
+    connection = FakeConnection(all_results=[[], [], [], []])
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
+
+    response = test_client.post(
+        "/settings?tab=courses",
+        data={
+            "csrf_token": csrf_token(test_client),
+            "action": "update_course",
+            "course_id": "2",
+            "course_name": "Biology",
+            "description": "",
+            "capacity": "0",
+            "teacher_id": "4",
+        },
+    )
+
+    assert response.status_code == 200
+    assert b"capacity from 1 to 200" in response.data
+    assert not any("UPDATE courses" in query for query, _ in connection.fake_cursor.queries)
+    assert connection.commits == 0
+
+
+def test_admin_course_update_cannot_set_capacity_below_existing_enrollments(
+    client, monkeypatch
+):
+    test_client, users = client
+    authenticate(test_client, users, "admin")
+    connection = FakeConnection(
+        one_results=[
+            {
+                "course_name": "Biology",
+                "description": None,
+                "capacity": 30,
+                "teacher_id": 4,
+            },
+            {"count": 12},
+        ],
+        all_results=[[], [], [], []],
+    )
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
+
+    response = test_client.post(
+        "/settings?tab=courses",
+        data={
+            "csrf_token": csrf_token(test_client),
+            "action": "update_course",
+            "course_id": "2",
+            "course_name": "Biology",
+            "description": "",
+            "capacity": "10",
+            "teacher_id": "4",
+        },
+    )
+
+    assert b"Capacity cannot be lower than the 12 existing enrollment(s)." in response.data
+    assert not any("UPDATE courses" in query for query, _ in connection.fake_cursor.queries)
+    assert connection.commits == 0
+
+
+def test_teacher_student_export_scopes_students_and_neutralizes_csv_formulas(
+    client, monkeypatch
+):
+    test_client, users = client
+    authenticate(test_client, users, "teacher", teacher_id=9)
+    connection = FakeConnection(
+        all_results=[
+            [
+                {
+                    "full_name": "=SUM(1,1)",
+                    "email": "student@example.com",
+                    "grade_level": 10,
+                    "course_count": 2,
+                }
+            ]
+        ]
+    )
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
+
+    response = test_client.get("/students/export?grade_level=10&search=Sam")
+
+    query, params = connection.fake_cursor.queries[0]
+    assert response.status_code == 200
+    assert response.mimetype == "text/csv"
+    assert b"'=SUM(1,1)" in response.data
+    assert "WHERE c2.teacher_id = %s" in query
+    assert params == [None, 9, 10, "%Sam%", "%Sam%"]
+    assert connection.fake_cursor.closed
+    assert connection.closed
+
+
 def test_unknown_role_cannot_read_student_or_course_details(client, monkeypatch):
     test_client, users = client
     authenticate(test_client, users, "unknown-role")
@@ -168,6 +463,36 @@ def test_teacher_cannot_open_a_course_owned_by_another_teacher(client, monkeypat
     assert connection.closed
 
 
+def test_admin_can_open_course_detail(client, monkeypatch):
+    test_client, users = client
+    authenticate(test_client, users, "admin")
+    connection = FakeConnection(
+        one_results=[
+            {
+                "course_id": 5,
+                "course_name": "Biology",
+                "capacity": 20,
+                "teacher": "Alex Teacher",
+                "teacher_email": "alex@example.edu",
+            }
+        ],
+        all_results=[
+            [{"year_id": 1, "year_name": "2026-2027"}],
+            [{"semester_id": 2, "semester_name": "Fall"}],
+            [],
+            [],
+        ],
+    )
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
+
+    response = test_client.get("/courses/5?year_id=1&semester_id=2")
+
+    assert response.status_code == 200
+    assert b"Biology" in response.data
+    assert connection.fake_cursor.closed
+    assert connection.closed
+
+
 def test_student_course_detail_never_queries_classmates_or_their_grades(client, monkeypatch):
     test_client, users = client
     authenticate(test_client, users, "student", student_id=7)
@@ -203,7 +528,10 @@ def test_student_course_detail_never_queries_classmates_or_their_grades(client, 
 def test_teacher_dashboard_queries_are_scoped_to_owned_courses(client, monkeypatch):
     test_client, users = client
     authenticate(test_client, users, "teacher", teacher_id=4)
-    connection = FakeConnection(one_results=[{"count": 2}, {"count": 1}, {"count": 3}])
+    connection = FakeConnection(
+        one_results=[{"count": 2}, {"count": 1}, {"count": 3}],
+        all_results=[[], [{"semester_id": 2, "semester_name": "Fall"}]],
+    )
     monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
 
     response = test_client.get("/?year_id=1&semester_id=2")
@@ -220,6 +548,17 @@ def test_teacher_dashboard_queries_are_scoped_to_owned_courses(client, monkeypat
         assert params == [2, 4]
     assert connection.fake_cursor.closed
     assert connection.closed
+
+
+def test_semester_selection_must_belong_to_selected_year():
+    semesters = [
+        {"semester_id": 3, "semester_name": "Spring"},
+        {"semester_id": 4, "semester_name": "Fall"},
+    ]
+
+    assert edutrack.routes._semester_for_year(semesters, 4) == 4
+    assert edutrack.routes._semester_for_year(semesters, 2) == 3
+    assert edutrack.routes._semester_for_year([], 2) is None
 
 
 def test_teacher_cannot_submit_student_enrollment(client, monkeypatch):
@@ -241,6 +580,112 @@ def test_teacher_cannot_submit_student_enrollment(client, monkeypatch):
     assert response.status_code == 200
     assert b"Only admins can enroll students." in response.data
     assert not any("INSERT INTO enrollments" in query for query, _ in connection.fake_cursor.queries)
+    assert connection.fake_cursor.closed
+    assert connection.closed
+
+
+def test_admin_enrollment_checks_capacity_and_year_semester_match(client, monkeypatch):
+    test_client, users = client
+    authenticate(test_client, users, "admin")
+    connection = FakeConnection(
+        one_results=[{"year_id": 8}],
+        all_results=[
+            [{"year_id": 1, "year_name": "2026-2027"}],
+            [{"semester_id": 2, "semester_name": "Fall"}],
+            [],
+            [],
+            [],
+        ],
+    )
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
+
+    response = test_client.post(
+        "/grades?year_id=1&semester_id=2",
+        data={
+            "csrf_token": csrf_token(test_client),
+            "action": "enroll",
+            "student_id": "7",
+            "course_id": "5",
+        },
+    )
+
+    assert response.status_code == 200
+    assert b"Choose a semester in the selected academic year." in response.data
+    assert not any("FOR UPDATE" in query for query, _ in connection.fake_cursor.queries)
+    assert not any("INSERT INTO enrollments" in query for query, _ in connection.fake_cursor.queries)
+
+
+def test_admin_enrollment_rejects_course_at_capacity(client, monkeypatch):
+    test_client, users = client
+    authenticate(test_client, users, "admin")
+    connection = FakeConnection(
+        one_results=[
+            {"year_id": 1},
+            {"capacity": 2},
+        ],
+        all_results=[
+            [{"year_id": 1, "year_name": "2026-2027"}],
+            [{"semester_id": 2, "semester_name": "Fall"}],
+            [{"enrollment_id": 1}, {"enrollment_id": 2}],
+            [],
+            [],
+            [],
+        ],
+    )
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
+
+    response = test_client.post(
+        "/grades?year_id=1&semester_id=2",
+        data={
+            "csrf_token": csrf_token(test_client),
+            "action": "enroll",
+            "student_id": "7",
+            "course_id": "5",
+        },
+    )
+
+    assert b"This course is at capacity" in response.data
+    assert any("FOR UPDATE" in query for query, _ in connection.fake_cursor.queries)
+    assert not any("INSERT INTO enrollments" in query for query, _ in connection.fake_cursor.queries)
+    assert connection.commits == 0
+
+
+def test_admin_enrollment_commits_the_enrollment_and_audit_together(
+    client, monkeypatch
+):
+    test_client, users = client
+    authenticate(test_client, users, "admin")
+    connection = FakeConnection(
+        one_results=[
+            {"year_id": 1},
+            {"capacity": 30},
+        ],
+        all_results=[
+            [{"year_id": 1, "year_name": "2026-2027"}],
+            [{"semester_id": 2, "semester_name": "Fall"}],
+            [],
+            [],
+            [],
+            [],
+        ],
+    )
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
+
+    response = test_client.post(
+        "/grades?year_id=1&semester_id=2",
+        data={
+            "csrf_token": csrf_token(test_client),
+            "action": "enroll",
+            "student_id": "7",
+            "course_id": "5",
+        },
+    )
+
+    queries = connection.fake_cursor.queries
+    assert b"Student enrolled successfully." in response.data
+    assert any("INSERT INTO enrollments" in query for query, _ in queries)
+    assert any("INSERT INTO audit_log" in query for query, _ in queries)
+    assert connection.commits == 1
     assert connection.fake_cursor.closed
     assert connection.closed
 

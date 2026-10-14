@@ -11,9 +11,9 @@
 
 <!-- Filter Bar -->
 <div class="filter-bar">
-    <label>Entity Type</label>
     <form method="GET" style="display:flex; gap:10px; align-items:center;">
-        <select name="entity_type" onchange="this.form.submit()">
+        <label for="audit-entity-type">Entity Type</label>
+        <select id="audit-entity-type" name="entity_type">
             <option value="">All Types</option>
             {% for et in entity_types %}
             <option value="{{ et }}" {% if et == entity_filter %}selected{% endif %}>
@@ -21,6 +21,7 @@
             </option>
             {% endfor %}
         </select>
+        <button type="submit" class="btn btn-primary">Apply filter</button>
     </form>
 </div>
 

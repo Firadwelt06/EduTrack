@@ -11,9 +11,9 @@
 
 <!-- Filter Bar -->
 <div class="filter-bar">
-    <label>Academic Period</label>
-    <form method="GET" action="/students" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-        <select name="year_id" onchange="this.form.submit()">
+    <label for="student-year">Academic year</label>
+    <form method="GET" action="/students" class="filter-form">
+        <select id="student-year" name="year_id">
             {% for year in years %}
             <option value="{{ year['year_id'] }}"
                 {% if year['year_id'] == selected_year_id %}selected{% endif %}>
@@ -21,7 +21,8 @@
             </option>
             {% endfor %}
         </select>
-        <select name="semester_id" onchange="this.form.submit()">
+        <label for="student-semester">Semester</label>
+        <select id="student-semester" name="semester_id">
             {% for semester in semesters %}
             <option value="{{ semester['semester_id'] }}"
                 {% if semester['semester_id'] == selected_semester_id %}selected{% endif %}>
@@ -29,7 +30,8 @@
             </option>
             {% endfor %}
         </select>
-        <select name="grade_level" onchange="this.form.submit()">
+        <label for="student-grade">Grade</label>
+        <select id="student-grade" name="grade_level">
             <option value="">All Grades</option>
             <option value="9" {% if selected_grade == 9 %}selected{% endif %}>Grade 9</option>
             <option value="10" {% if selected_grade == 10 %}selected{% endif %}>Grade 10</option>
@@ -40,13 +42,15 @@
         <!-- Search box. Submitting this form also re-sends year_id/semester_id/grade_level
              above since they're all inside the same <form>. Sort and page are NOT in this
              form, so a new search intentionally resets sort/page to defaults (page 1, name sort) -->
-        <input type="text" name="search" placeholder="Search name or email..."
+        <label for="student-search">Search students</label>
+        <input id="student-search" type="search" name="search" placeholder="Name or email"
                value="{{ search or '' }}" style="padding:8px 14px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
-        <button type="submit" class="btn btn-primary" style="padding:8px 16px;">Search</button>
+        <button type="submit" class="btn btn-primary">Apply filters</button>
 
         <a href="/add-student" class="btn btn-primary" style="margin-left:auto;">+ Add Student</a>
         
         <a href="/students/import" class="btn" style="background:#f0f0f0; color:#333;">Import CSV</a>
+        <a href="{{ url_for('export_students', **request.args) }}" class="btn btn-secondary">Export CSV</a>
     </form>
 </div>
 

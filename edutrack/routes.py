@@ -1,7 +1,7 @@
 import csv
 import io
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import mysql.connector
 from flask import (
@@ -41,6 +41,85 @@ def sanitize_csv_field(value):
     if value and value[0] in FORMULA_TRIGGER_CHARS:
         return "'" + value
     return value
+
+
+def _student_filters(role, teacher_id, selected_grade, search):
+    clauses = ["1=1"]
+    params = []
+    if role == "teacher":
+        clauses.append(
+            """
+            s.student_id IN (
+                SELECT e2.student_id FROM enrollments e2
+                JOIN courses c2 ON e2.course_id = c2.course_id
+                WHERE c2.teacher_id = %s
+            )
+            """
+        )
+        params.append(teacher_id)
+    if selected_grade:
+        clauses.append("s.grade_level = %s")
+        params.append(selected_grade)
+    if search:
+        clauses.append(
+            "(CONCAT(s.first_name, ' ', COALESCE(s.middle_name, ''), ' ', "
+            "s.last_name) LIKE %s OR s.email LIKE %s)"
+        )
+        like_term = f"%{search}%"
+        params.extend((like_term, like_term))
+    return " AND ".join(clauses), params
+
+
+def _course_listing_query(role, student_id, semester_id, search):
+    clauses = []
+    params = [semester_id]
+    if role == "student":
+        if semester_id is None:
+            clauses.append("1 = 0")
+        else:
+            clauses.append(
+                """
+                EXISTS (
+                    SELECT 1 FROM enrollments access_enrollment
+                    WHERE access_enrollment.course_id = c.course_id
+                      AND access_enrollment.student_id = %s
+                      AND access_enrollment.semester_id = %s
+                )
+                """
+            )
+            params.extend((student_id, semester_id))
+    if search:
+        clauses.append(
+            "(c.course_name LIKE %s OR "
+            "CONCAT(t.first_name, ' ', t.last_name) LIKE %s)"
+        )
+        like_term = f"%{search}%"
+        params.extend((like_term, like_term))
+
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    query = f"""
+        SELECT
+            c.course_id,
+            c.course_name,
+            c.capacity,
+            CONCAT(t.first_name, ' ', t.last_name) AS teacher,
+            COUNT(e.enrollment_id) AS enrolled
+        FROM courses c
+        JOIN teachers t ON c.teacher_id = t.teacher_id
+        LEFT JOIN enrollments e ON c.course_id = e.course_id
+            AND e.semester_id = %s
+        {where_sql}
+        GROUP BY c.course_id
+        ORDER BY c.course_name
+    """
+    return query, params
+
+
+def _semester_for_year(semesters, selected_semester_id):
+    available = {semester["semester_id"] for semester in semesters}
+    if selected_semester_id in available:
+        return selected_semester_id
+    return semesters[0]["semester_id"] if semesters else None
 
 
 # Login manager user class
@@ -232,8 +311,9 @@ def register_routes(app):
             semesters = cursor.fetchall()
 
         # If no semester selected, use the first one
-        if not selected_semester_id and semesters:
-            selected_semester_id = semesters[0]["semester_id"]
+        selected_semester_id = _semester_for_year(
+            semesters, selected_semester_id
+        )
 
         if current_user.role == 'student':
                 my_grades = []
@@ -426,39 +506,16 @@ def register_routes(app):
             """, (selected_year_id,))
             semesters = cursor.fetchall()
 
-        if not selected_semester_id and semesters:
-            selected_semester_id = semesters[0]["semester_id"]
+        selected_semester_id = _semester_for_year(
+            semesters, selected_semester_id
+        )
 
-        # Build WHERE clause pieces. Each filter adds its own placeholder
-        # and matching parameter, in the same order, to keep them in sync.
-        where_clauses = ["1=1"]
-        where_params = []
-
-        # Data-level scoping: a teacher only ever sees students in courses they teach
-        if current_user.role == 'teacher':
-            where_clauses.append("""
-                s.student_id IN (
-                    SELECT e2.student_id FROM enrollments e2
-                    JOIN courses c2 ON e2.course_id = c2.course_id
-                    WHERE c2.teacher_id = %s
-                )
-            """)
-            where_params.append(current_user.teacher_id)
-
-        if selected_grade:
-            where_clauses.append("s.grade_level = %s")
-            where_params.append(selected_grade)
-
-        if search:
-            where_clauses.append(
-                "(CONCAT(s.first_name, ' ', COALESCE(s.middle_name, ''), ' ', s.last_name) LIKE %s "
-                "OR s.email LIKE %s)"
-            )
-            like_term = f"%{search}%"
-            where_params.append(like_term)
-            where_params.append(like_term)
-
-        where_sql = " AND ".join(where_clauses)
+        where_sql, where_params = _student_filters(
+            current_user.role,
+            current_user.teacher_id,
+            selected_grade,
+            search,
+        )
 
         # Count total matching students (for pagination), independent of LIMIT/OFFSET
         cursor.execute(f"""
@@ -512,6 +569,58 @@ def register_routes(app):
             page=page,
             total_pages=total_pages,
             total_count=total_count
+        )
+
+    @app.route("/students/export")
+    @login_required
+    @roles_required("admin", "teacher")
+    def export_students():
+        selected_grade = request.args.get("grade_level", type=int)
+        search = request.args.get("search", "").strip()
+        where_sql, where_params = _student_filters(
+            current_user.role,
+            current_user.teacher_id,
+            selected_grade,
+            search,
+        )
+        selected_semester_id = request.args.get("semester_id", type=int)
+        conn = get_conn()
+        cursor = conn.cursor(dictionary=True, buffered=True)
+        cursor.execute(
+            f"""
+            SELECT
+                CONCAT(s.first_name, ' ', COALESCE(s.middle_name, ''), ' ',
+                       s.last_name) AS full_name,
+                s.email,
+                s.grade_level,
+                COUNT(e.enrollment_id) AS course_count
+            FROM students s
+            LEFT JOIN enrollments e ON s.student_id = e.student_id
+                AND e.semester_id = %s
+            WHERE {where_sql}
+            GROUP BY s.student_id
+            ORDER BY s.last_name, s.first_name
+            """,
+            [selected_semester_id, *where_params],
+        )
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        writer.writerow(("Student", "Email", "Grade Level", "Courses"))
+        for row in rows:
+            writer.writerow(
+                sanitize_csv_field(str(row[field]) if row[field] is not None else "")
+                for field in ("full_name", "email", "grade_level", "course_count")
+            )
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={
+                "Content-Disposition": 'attachment; filename="students.csv"',
+            },
         )
 
     # Student Detail
@@ -571,8 +680,9 @@ def register_routes(app):
             """, (selected_year_id,))
             semesters = cursor.fetchall()
 
-        if not selected_semester_id and semesters:
-            selected_semester_id = semesters[0]["semester_id"]
+        selected_semester_id = _semester_for_year(
+            semesters, selected_semester_id
+        )
 
         # Get student info
         cursor.execute("""
@@ -718,8 +828,9 @@ def register_routes(app):
             """, (selected_year_id,))
             semesters = cursor.fetchall()
 
-        if not selected_semester_id and semesters:
-            selected_semester_id = semesters[0]["semester_id"]
+        selected_semester_id = _semester_for_year(
+            semesters, selected_semester_id
+        )
 
         # Handle form submissions
         if request.method == "POST":
@@ -733,23 +844,83 @@ def register_routes(app):
                     student_id = request.form.get("student_id")
                     course_id = request.form.get("course_id")
 
-                    if not all([student_id, course_id, selected_semester_id, selected_year_id]):
+                    if (
+                        not student_id
+                        or not student_id.isdecimal()
+                        or int(student_id) < 1
+                        or not course_id
+                        or not course_id.isdecimal()
+                        or int(course_id) < 1
+                        or not selected_semester_id
+                        or not selected_year_id
+                    ):
                         error = "Please select a student, course, and academic period."
                     else:
                         try:
-                            cursor.execute("""
-                                INSERT INTO enrollments
-                                (student_id, course_id, semester_id, academic_year_id)
-                                VALUES (%s, %s, %s, %s)
-                            """, (student_id, course_id, selected_semester_id, selected_year_id))
-                            new_enrollment_id = cursor.lastrowid
-                            log_audit(cursor, "enroll", "enrollment", new_enrollment_id,
-                                      {"student_id": int(student_id), "course_id": int(course_id)})
-                            conn.commit()
-                            success = "Student enrolled successfully."
+                            cursor.execute(
+                                """
+                                SELECT year_id FROM semesters
+                                WHERE semester_id = %s
+                                """,
+                                (selected_semester_id,),
+                            )
+                            semester = cursor.fetchone()
+                            if not semester or semester["year_id"] != selected_year_id:
+                                error = "Choose a semester in the selected academic year."
+                            else:
+                                cursor.execute(
+                                    "SELECT capacity FROM courses WHERE course_id = %s FOR UPDATE",
+                                    (course_id,),
+                                )
+                                course = cursor.fetchone()
+                                if not course:
+                                    error = "That course no longer exists."
+                                else:
+                                    cursor.execute(
+                                        """
+                                        SELECT enrollment_id
+                                        FROM enrollments
+                                        WHERE course_id = %s AND semester_id = %s
+                                        FOR UPDATE
+                                        """,
+                                        (course_id, selected_semester_id),
+                                    )
+                                    count = len(cursor.fetchall())
+                                    if count >= course["capacity"]:
+                                        error = "This course is at capacity for the selected semester."
+                                    else:
+                                        cursor.execute(
+                                            """
+                                            INSERT INTO enrollments
+                                            (student_id, course_id, semester_id, academic_year_id)
+                                            VALUES (%s, %s, %s, %s)
+                                            """,
+                                            (
+                                                int(student_id),
+                                                int(course_id),
+                                                selected_semester_id,
+                                                selected_year_id,
+                                            ),
+                                        )
+                                        new_enrollment_id = cursor.lastrowid
+                                        log_audit(
+                                            cursor,
+                                            "enroll",
+                                            "enrollment",
+                                            new_enrollment_id,
+                                            {
+                                                "student_id": int(student_id),
+                                                "course_id": int(course_id),
+                                                "semester_id": selected_semester_id,
+                                            },
+                                        )
+                                        conn.commit()
+                                        success = "Student enrolled successfully."
                         except mysql.connector.IntegrityError:
+                            conn.rollback()
                             error = "This student is already enrolled in that course."
                         except mysql.connector.Error as e:
+                            conn.rollback()
                             ref = log_db_error(e)
                             error = f"Something went wrong on our end (ref: {ref}). Please try again or contact an admin."
 
@@ -758,7 +929,11 @@ def register_routes(app):
                 enrollment_id = request.form.get("enrollment_id")
                 new_grade = request.form.get("new_grade")
 
-                if not all([enrollment_id, new_grade]):
+                if (
+                    not enrollment_id
+                    or not enrollment_id.isdecimal()
+                    or not new_grade
+                ):
                     error = "Please select an enrollment and a grade."
                 elif new_grade not in ("S", "A", "B", "C", "D", "F"):
                     error = "Please select a valid grade."
@@ -774,17 +949,35 @@ def register_routes(app):
                             error = "You can't update grades for a course you don't teach."
 
                     if not error:
-                        cursor.execute("SELECT final_grade FROM enrollments WHERE enrollment_id = %s",
-                                       (enrollment_id,))
-                        old_row = cursor.fetchone()
-                        old_grade = old_row["final_grade"] if old_row else None
-
-                        cursor.execute("UPDATE enrollments SET final_grade = %s WHERE enrollment_id = %s",
-                                       (new_grade, enrollment_id))
-                        log_audit(cursor, "update_grade", "enrollment", int(enrollment_id),
-                                  {"old_grade": old_grade, "new_grade": new_grade})
-                        conn.commit()
-                        success = f"Grade updated to {new_grade} successfully."
+                        try:
+                            cursor.execute(
+                                "SELECT final_grade FROM enrollments WHERE enrollment_id = %s",
+                                (enrollment_id,),
+                            )
+                            old_row = cursor.fetchone()
+                            if not old_row:
+                                error = "That enrollment no longer exists."
+                            else:
+                                cursor.execute(
+                                    "UPDATE enrollments SET final_grade = %s WHERE enrollment_id = %s",
+                                    (new_grade, enrollment_id),
+                                )
+                                log_audit(
+                                    cursor,
+                                    "update_grade",
+                                    "enrollment",
+                                    int(enrollment_id),
+                                    {
+                                        "old_grade": old_row["final_grade"],
+                                        "new_grade": new_grade,
+                                    },
+                                )
+                                conn.commit()
+                                success = f"Grade updated to {new_grade} successfully."
+                        except mysql.connector.Error as exc:
+                            conn.rollback()
+                            ref = log_db_error(exc)
+                            error = f"Unable to update grade (ref: {ref}). Please try again or contact an admin."
 
         # Enrollments list — scoped for teachers to only their own courses' enrollments
         enrollments = []
@@ -831,6 +1024,64 @@ def register_routes(app):
             success=success
         )
 
+    @app.route("/grades/enrollment/<int:enrollment_id>/delete", methods=["POST"])
+    @login_required
+    @roles_required("admin")
+    def delete_enrollment(enrollment_id):
+        conn = get_conn()
+        cursor = conn.cursor(dictionary=True, buffered=True)
+        try:
+            cursor.execute(
+                """
+                SELECT student_id, course_id, semester_id, academic_year_id,
+                       final_grade
+                FROM enrollments
+                WHERE enrollment_id = %s
+                """,
+                (enrollment_id,),
+            )
+            enrollment = cursor.fetchone()
+            if not enrollment:
+                flash("That enrollment no longer exists.", "error")
+                return redirect(url_for("grades"))
+
+            cursor.execute(
+                "DELETE FROM enrollments WHERE enrollment_id = %s",
+                (enrollment_id,),
+            )
+            log_audit(
+                cursor,
+                "unenroll",
+                "enrollment",
+                enrollment_id,
+                {
+                    "student_id": enrollment["student_id"],
+                    "course_id": enrollment["course_id"],
+                    "semester_id": enrollment["semester_id"],
+                    "final_grade": enrollment["final_grade"],
+                },
+            )
+            conn.commit()
+            flash("Enrollment removed.", "success")
+            return redirect(
+                url_for(
+                    "grades",
+                    year_id=enrollment["academic_year_id"],
+                    semester_id=enrollment["semester_id"],
+                )
+            )
+        except mysql.connector.Error as exc:
+            conn.rollback()
+            ref = log_db_error(exc)
+            flash(
+                f"Unable to remove enrollment (ref: {ref}). Please try again or contact an admin.",
+                "error",
+            )
+            return redirect(url_for("grades"))
+        finally:
+            cursor.close()
+            conn.close()
+
     # Courses
     @app.route("/courses")
     @login_required
@@ -863,24 +1114,18 @@ def register_routes(app):
             """, (selected_year_id,))
             semesters = cursor.fetchall()
 
-        if not selected_semester_id and semesters:
-            selected_semester_id = semesters[0]["semester_id"]
+        selected_semester_id = _semester_for_year(
+            semesters, selected_semester_id
+        )
 
-        # Get all courses with teacher and enrollment count
-        cursor.execute("""
-            SELECT 
-                c.course_id,
-                c.course_name,
-                c.capacity,
-                CONCAT(t.first_name, ' ', t.last_name) AS teacher,
-                COUNT(e.enrollment_id) AS enrolled
-            FROM courses c
-            JOIN teachers t ON c.teacher_id = t.teacher_id
-            LEFT JOIN enrollments e ON c.course_id = e.course_id
-                AND e.semester_id = %s
-            GROUP BY c.course_id
-            ORDER BY c.course_name
-        """, (selected_semester_id,))
+        search = request.args.get("search", "").strip()
+        query, params = _course_listing_query(
+            current_user.role,
+            current_user.student_id,
+            selected_semester_id,
+            search,
+        )
+        cursor.execute(query, params)
         courses = cursor.fetchall()
 
         cursor.close()
@@ -891,7 +1136,52 @@ def register_routes(app):
             years=years,
             semesters=semesters,
             selected_year_id=selected_year_id,
-            selected_semester_id=selected_semester_id
+            selected_semester_id=selected_semester_id,
+            search=search,
+        )
+
+    @app.route("/courses/export")
+    @login_required
+    @roles_required("admin", "teacher", "student")
+    def export_courses():
+        selected_semester_id = request.args.get("semester_id", type=int)
+        search = request.args.get("search", "").strip()
+        query, params = _course_listing_query(
+            current_user.role,
+            current_user.student_id,
+            selected_semester_id,
+            search,
+        )
+        conn = get_conn()
+        cursor = conn.cursor(dictionary=True, buffered=True)
+        cursor.execute(query, params)
+        courses = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        fields = (
+            ("course_name", "teacher")
+            if current_user.role == "student"
+            else ("course_name", "teacher", "capacity", "enrolled")
+        )
+        writer.writerow(("Course", "Teacher") if len(fields) == 2 else (
+            "Course", "Teacher", "Capacity", "Enrolled"
+        ))
+        for course in courses:
+            writer.writerow(
+                sanitize_csv_field(
+                    str(course[field]) if course[field] is not None else ""
+                )
+                for field in fields
+            )
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={
+                "Content-Disposition": 'attachment; filename="courses.csv"',
+            },
         )
 
     # Course Detail
@@ -901,7 +1191,9 @@ def register_routes(app):
         conn = get_conn()
         cursor = conn.cursor(dictionary=True, buffered=True)
 
-        if current_user.role == 'teacher':
+        if current_user.role == "admin":
+            pass
+        elif current_user.role == 'teacher':
             cursor.execute("SELECT 1 FROM courses WHERE course_id = %s AND teacher_id = %s",
                            (course_id, current_user.teacher_id))
             if not cursor.fetchone():
@@ -943,8 +1235,9 @@ def register_routes(app):
             """, (selected_year_id,))
             semesters = cursor.fetchall()
 
-        if not selected_semester_id and semesters:
-            selected_semester_id = semesters[0]["semester_id"]
+        selected_semester_id = _semester_for_year(
+            semesters, selected_semester_id
+        )
 
         # Get course info
         cursor.execute("""
@@ -1036,8 +1329,8 @@ def register_routes(app):
         if request.method == "POST" and request.form.get("action") == "add_year":
             year_name = request.form.get("year_name", "").strip()
             is_current = 1 if request.form.get("is_current") else 0
-            if not year_name:
-                error = "Year name is required."
+            if not year_name or len(year_name) > 20:
+                error = "Enter an academic year name of 1 to 20 characters."
             else:
                 try:
                     if is_current:
@@ -1046,19 +1339,36 @@ def register_routes(app):
                         "INSERT INTO academic_years (year_name, is_current) VALUES (%s, %s)",
                         (year_name, is_current)
                     )
+                    log_audit(
+                        cursor,
+                        "create",
+                        "academic_year",
+                        cursor.lastrowid,
+                        {"year_name": year_name, "is_current": bool(is_current)},
+                    )
                     conn.commit()
                     success = f"Academic year {year_name} added."
                     active_tab = "academic"
                 except mysql.connector.IntegrityError:
                     conn.rollback()
                     error = "That academic year already exists."
+                except mysql.connector.Error as exc:
+                    conn.rollback()
+                    ref = log_db_error(exc)
+                    error = f"Unable to add academic year (ref: {ref}). Please try again or contact an admin."
 
         elif request.method == "POST" and request.form.get("action") == "add_semester":
             year_id = request.form.get("year_id")
             semester_name = request.form.get("semester_name", "").strip()
             semester_order = request.form.get("semester_order")
-            if not all([year_id, semester_name, semester_order]):
-                error = "All semester fields are required."
+            if (
+                not year_id
+                or not year_id.isdecimal()
+                or not semester_name
+                or len(semester_name) > 20
+                or semester_order not in ("1", "2", "3")
+            ):
+                error = "Enter a valid year, semester name, and order."
             else:
                 try:
                     cursor.execute(
@@ -1066,11 +1376,27 @@ def register_routes(app):
                         VALUES (%s, %s, %s)""",
                         (year_id, semester_name, semester_order)
                     )
+                    log_audit(
+                        cursor,
+                        "create",
+                        "semester",
+                        cursor.lastrowid,
+                        {
+                            "year_id": int(year_id),
+                            "semester_name": semester_name,
+                            "semester_order": int(semester_order),
+                        },
+                    )
                     conn.commit()
                     success = f"Semester {semester_name} added."
                     active_tab = "academic"
                 except mysql.connector.IntegrityError:
+                    conn.rollback()
                     error = "That semester already exists for this year."
+                except mysql.connector.Error as exc:
+                    conn.rollback()
+                    ref = log_db_error(exc)
+                    error = f"Unable to add semester (ref: {ref}). Please try again or contact an admin."
 
         elif request.method == "POST" and request.form.get("action") == "set_current_year":
             year_id = request.form.get("year_id")
@@ -1085,6 +1411,12 @@ def register_routes(app):
                         "UPDATE academic_years SET is_current = 1 WHERE year_id = %s",
                         (year_id,)
                     )
+                    log_audit(
+                        cursor,
+                        "set_current",
+                        "academic_year",
+                        int(year_id),
+                    )
                     conn.commit()
                     success = "Current academic year updated."
                 else:
@@ -1094,14 +1426,171 @@ def register_routes(app):
                 error = "Select an academic year."
                 active_tab = "academic"
 
+        elif request.method == "POST" and request.form.get("action") == "update_teacher":
+            teacher_id = request.form.get("teacher_id", "")
+            fname = request.form.get("fname", "").strip()
+            lname = request.form.get("lname", "").strip()
+            email = request.form.get("email", "").strip()
+            hire_date = request.form.get("hire_date", "")
+            active_tab = "teachers"
+            try:
+                date.fromisoformat(hire_date)
+                valid_hire_date = True
+            except ValueError:
+                valid_hire_date = False
+            if (
+                not teacher_id.isdecimal()
+                or not fname
+                or len(fname) > 50
+                or not lname
+                or len(lname) > 50
+                or not email
+                or len(email) > 100
+                or "@" not in email
+                or any(char.isspace() for char in email)
+                or not valid_hire_date
+            ):
+                error = "Enter a valid name, email address, and hire date."
+            else:
+                try:
+                    cursor.execute(
+                        """
+                        SELECT first_name, last_name, email, hire_date
+                        FROM teachers WHERE teacher_id = %s
+                        """,
+                        (teacher_id,),
+                    )
+                    old_teacher = cursor.fetchone()
+                    if not old_teacher:
+                        error = "That teacher no longer exists."
+                    else:
+                        cursor.execute(
+                            """
+                            UPDATE teachers
+                            SET first_name = %s, last_name = %s,
+                                email = %s, hire_date = %s
+                            WHERE teacher_id = %s
+                            """,
+                            (fname, lname, email, hire_date, teacher_id),
+                        )
+                        log_audit(
+                            cursor,
+                            "update",
+                            "teacher",
+                            int(teacher_id),
+                            {"fields": ["first_name", "last_name", "email", "hire_date"]},
+                        )
+                        conn.commit()
+                        success = "Teacher details updated."
+                except mysql.connector.IntegrityError:
+                    conn.rollback()
+                    error = "A teacher with this email already exists."
+                except mysql.connector.Error as exc:
+                    conn.rollback()
+                    ref = log_db_error(exc)
+                    error = f"Unable to update teacher (ref: {ref}). Please try again or contact an admin."
+
+        elif request.method == "POST" and request.form.get("action") == "update_course":
+            course_id = request.form.get("course_id", "")
+            course_name = request.form.get("course_name", "").strip()
+            description = request.form.get("description", "").strip() or None
+            capacity = request.form.get("capacity", "")
+            teacher_id = request.form.get("teacher_id", "")
+            active_tab = "courses"
+            if (
+                not course_id.isdecimal()
+                or not course_name
+                or len(course_name) > 100
+                or not capacity.isdecimal()
+                or not 1 <= int(capacity) <= 200
+                or not teacher_id.isdecimal()
+            ):
+                error = "Enter a course name, capacity from 1 to 200, and teacher."
+            else:
+                try:
+                    cursor.execute(
+                        """
+                        SELECT course_name, description, capacity, teacher_id
+                        FROM courses WHERE course_id = %s
+                        """,
+                        (course_id,),
+                    )
+                    old_course = cursor.fetchone()
+                    if not old_course:
+                        error = "That course no longer exists."
+                    else:
+                        cursor.execute(
+                            """
+                            SELECT COUNT(*) AS count
+                            FROM enrollments
+                            WHERE course_id = %s
+                            GROUP BY semester_id
+                            ORDER BY count DESC
+                            LIMIT 1
+                            """,
+                            (course_id,),
+                        )
+                        highest_semester_count = cursor.fetchone()
+                        enrollment_count = (
+                            highest_semester_count["count"]
+                            if highest_semester_count
+                            else 0
+                        )
+                        if enrollment_count > int(capacity):
+                            error = (
+                                f"Capacity cannot be lower than the {enrollment_count} "
+                                "existing enrollment(s)."
+                            )
+                        else:
+                            cursor.execute(
+                                """
+                                UPDATE courses
+                                SET course_name = %s, description = %s,
+                                    capacity = %s, teacher_id = %s
+                                WHERE course_id = %s
+                                """,
+                                (course_name, description, int(capacity), teacher_id, course_id),
+                            )
+                            log_audit(
+                                cursor,
+                                "update",
+                                "course",
+                                int(course_id),
+                                {"fields": ["course_name", "description", "capacity", "teacher_id"]},
+                            )
+                            conn.commit()
+                            success = "Course details updated."
+                except mysql.connector.IntegrityError:
+                    conn.rollback()
+                    error = "The selected teacher or course details conflict with existing data."
+                except mysql.connector.Error as exc:
+                    conn.rollback()
+                    ref = log_db_error(exc)
+                    error = f"Unable to update course (ref: {ref}). Please try again or contact an admin."
+
         # ── TEACHERS ──
         elif request.method == "POST" and request.form.get("action") == "add_teacher":
             fname = request.form.get("fname", "").strip()
             lname = request.form.get("lname", "").strip()
             email = request.form.get("email", "").strip()
             hire_date = request.form.get("hire_date")
-            if not all([fname, lname, email, hire_date]):
-                error = "All teacher fields are required."
+            try:
+                date.fromisoformat(hire_date or "")
+                valid_hire_date = True
+            except ValueError:
+                valid_hire_date = False
+            if (
+                not fname
+                or len(fname) > 50
+                or not lname
+                or len(lname) > 50
+                or not email
+                or len(email) > 100
+                or "@" not in email
+                or any(char.isspace() for char in email)
+                or not valid_hire_date
+            ):
+                error = "Enter valid teacher names, email address, and hire date."
             else:
                 try:
                     cursor.execute(
@@ -1109,11 +1598,23 @@ def register_routes(app):
                         VALUES (%s, %s, %s, %s)""",
                         (fname, lname, email, hire_date)
                     )
+                    log_audit(
+                        cursor,
+                        "create",
+                        "teacher",
+                        cursor.lastrowid,
+                        {"email": email},
+                    )
                     conn.commit()
                     success = f"Teacher {fname} {lname} added."
                     active_tab = "teachers"
                 except mysql.connector.IntegrityError:
+                    conn.rollback()
                     error = "A teacher with this email already exists."
+                except mysql.connector.Error as exc:
+                    conn.rollback()
+                    ref = log_db_error(exc)
+                    error = f"Unable to add teacher (ref: {ref}). Please try again or contact an admin."
 
         # ── COURSES ──
         elif request.method == "POST" and request.form.get("action") == "add_course":
@@ -1121,20 +1622,44 @@ def register_routes(app):
             description = request.form.get("description", "").strip() or None
             capacity = request.form.get("capacity")
             teacher_id = request.form.get("teacher_id")
-            if not all([course_name, capacity, teacher_id]):
-                error = "Course name, capacity and teacher are required."
+            if (
+                not course_name
+                or len(course_name) > 100
+                or not capacity
+                or not capacity.isdecimal()
+                or not 1 <= int(capacity) <= 200
+                or not teacher_id
+                or not teacher_id.isdecimal()
+            ):
+                error = "Enter a course name, capacity from 1 to 200, and teacher."
             else:
                 try:
                     cursor.execute(
                         """INSERT INTO courses (course_name, description, capacity, teacher_id)
                         VALUES (%s, %s, %s, %s)""",
-                        (course_name, description, capacity, teacher_id)
+                        (course_name, description, int(capacity), int(teacher_id))
+                    )
+                    log_audit(
+                        cursor,
+                        "create",
+                        "course",
+                        cursor.lastrowid,
+                        {
+                            "course_name": course_name,
+                            "capacity": int(capacity),
+                            "teacher_id": int(teacher_id),
+                        },
                     )
                     conn.commit()
                     success = f"Course {course_name} added."
                     active_tab = "courses"
                 except mysql.connector.IntegrityError:
+                    conn.rollback()
                     error = "That course already exists."
+                except mysql.connector.Error as exc:
+                    conn.rollback()
+                    ref = log_db_error(exc)
+                    error = f"Unable to add course (ref: {ref}). Please try again or contact an admin."
 
         # ── ACCOUNT ──
         elif request.method == "POST" and request.form.get("action") == "change_password":
@@ -1190,6 +1715,7 @@ def register_routes(app):
 
         cursor.execute("""
             SELECT c.course_id, c.course_name, c.description, c.capacity,
+                   c.teacher_id,
                    CONCAT(t.first_name, ' ', t.last_name) AS teacher
             FROM courses c
             JOIN teachers t ON c.teacher_id = t.teacher_id

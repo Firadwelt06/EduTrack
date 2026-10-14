@@ -11,9 +11,9 @@
 
 <!-- Semester Filter -->
 <div class="filter-bar">
-    <label>Academic Period</label>
-    <form method="GET" action="/" style="display:flex; gap:10px; align-items:center;">
-        <select name="year_id" onchange="this.form.submit()">
+    <form method="GET" action="/" class="filter-form">
+        <label for="dashboard-year">Academic year</label>
+        <select id="dashboard-year" name="year_id">
             {% for year in years %}
             <option value="{{ year['year_id'] }}"
                 {% if year['year_id'] == selected_year_id %}selected{% endif %}>
@@ -22,7 +22,8 @@
             {% endfor %}
         </select>
 
-        <select name="semester_id" onchange="this.form.submit()">
+        <label for="dashboard-semester">Semester</label>
+        <select id="dashboard-semester" name="semester_id">
             {% for semester in semesters %}
             <option value="{{ semester['semester_id'] }}"
                 {% if semester['semester_id'] == selected_semester_id %}selected{% endif %}>
@@ -30,6 +31,7 @@
             </option>
             {% endfor %}
         </select>
+        <button type="submit" class="btn btn-primary">Apply filters</button>
     </form>
 </div>
 
