@@ -89,7 +89,7 @@ def test_student_cannot_open_admin_settings_without_database_access(client, monk
     test_client, users = client
     authenticate(test_client, users, "student", student_id=7)
     monkeypatch.setattr(
-        edutrack, "get_conn",
+        edutrack.routes, "get_conn",
         lambda: (_ for _ in ()).throw(AssertionError("database must not be accessed")),
     )
 
@@ -103,7 +103,7 @@ def test_teacher_cannot_read_unassigned_student_and_connection_is_closed(client,
     test_client, users = client
     authenticate(test_client, users, "teacher", teacher_id=4)
     connection = FakeConnection()
-    monkeypatch.setattr(edutrack, "get_conn", lambda: connection)
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
 
     response = test_client.get("/students/9")
 
@@ -118,7 +118,7 @@ def test_student_cannot_read_another_students_record(client, monkeypatch):
     test_client, users = client
     authenticate(test_client, users, "student", student_id=7)
     connection = FakeConnection()
-    monkeypatch.setattr(edutrack, "get_conn", lambda: connection)
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
 
     response = test_client.get("/students/9")
 
@@ -139,7 +139,7 @@ def test_unknown_role_cannot_read_student_or_course_details(client, monkeypatch)
         connections.append(connection)
         return connection
 
-    monkeypatch.setattr(edutrack, "get_conn", fake_get_conn)
+    monkeypatch.setattr(edutrack.routes, "get_conn", fake_get_conn)
 
     student_response = test_client.get("/students/9")
     course_response = test_client.get("/courses/5")
@@ -157,7 +157,7 @@ def test_teacher_cannot_open_a_course_owned_by_another_teacher(client, monkeypat
     test_client, users = client
     authenticate(test_client, users, "teacher", teacher_id=4)
     connection = FakeConnection()
-    monkeypatch.setattr(edutrack, "get_conn", lambda: connection)
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
 
     response = test_client.get("/courses/5")
 
@@ -184,7 +184,7 @@ def test_student_course_detail_never_queries_classmates_or_their_grades(client, 
             [],
         ],
     )
-    monkeypatch.setattr(edutrack, "get_conn", lambda: connection)
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
 
     response = test_client.get("/courses/5?year_id=1&semester_id=2")
 
@@ -204,7 +204,7 @@ def test_teacher_dashboard_queries_are_scoped_to_owned_courses(client, monkeypat
     test_client, users = client
     authenticate(test_client, users, "teacher", teacher_id=4)
     connection = FakeConnection(one_results=[{"count": 2}, {"count": 1}, {"count": 3}])
-    monkeypatch.setattr(edutrack, "get_conn", lambda: connection)
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
 
     response = test_client.get("/?year_id=1&semester_id=2")
 
@@ -226,7 +226,7 @@ def test_teacher_cannot_submit_student_enrollment(client, monkeypatch):
     test_client, users = client
     authenticate(test_client, users, "teacher", teacher_id=4)
     connection = FakeConnection()
-    monkeypatch.setattr(edutrack, "get_conn", lambda: connection)
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
 
     response = test_client.post(
         "/grades?year_id=1&semester_id=2",
@@ -249,7 +249,7 @@ def test_invalid_grade_is_rejected_before_database_update(client, monkeypatch):
     test_client, users = client
     authenticate(test_client, users, "admin")
     connection = FakeConnection()
-    monkeypatch.setattr(edutrack, "get_conn", lambda: connection)
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
 
     response = test_client.post(
         "/grades?year_id=1&semester_id=2",
@@ -272,7 +272,7 @@ def test_setting_missing_academic_year_does_not_clear_current_year(client, monke
     test_client, users = client
     authenticate(test_client, users, "admin")
     connection = FakeConnection(one_results=[None])
-    monkeypatch.setattr(edutrack, "get_conn", lambda: connection)
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
 
     response = test_client.post(
         "/settings?tab=academic",
@@ -298,7 +298,7 @@ def test_setting_existing_academic_year_commits_both_updates_together(client, mo
     test_client, users = client
     authenticate(test_client, users, "admin")
     connection = FakeConnection(one_results=[{"year_id": 2}])
-    monkeypatch.setattr(edutrack, "get_conn", lambda: connection)
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
 
     response = test_client.post(
         "/settings?tab=academic",
@@ -328,7 +328,7 @@ def test_teacher_cannot_update_grade_for_another_teachers_course(client, monkeyp
     test_client, users = client
     authenticate(test_client, users, "teacher", teacher_id=4)
     connection = FakeConnection(one_results=[None])
-    monkeypatch.setattr(edutrack, "get_conn", lambda: connection)
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
 
     response = test_client.post(
         "/grades?year_id=1&semester_id=2",
@@ -354,7 +354,7 @@ def test_teacher_can_update_grade_for_owned_course(client, monkeypatch):
     connection = FakeConnection(
         one_results=[{"allowed": 1}, {"final_grade": "B"}]
     )
-    monkeypatch.setattr(edutrack, "get_conn", lambda: connection)
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
 
     response = test_client.post(
         "/grades?year_id=1&semester_id=2",
@@ -384,7 +384,7 @@ def test_student_import_rejects_invalid_headers_without_database_access(client, 
     test_client, users = client
     authenticate(test_client, users, "admin")
     monkeypatch.setattr(
-        edutrack, "get_conn",
+        edutrack.routes, "get_conn",
         lambda: (_ for _ in ()).throw(AssertionError("invalid CSV must not access the database")),
     )
 
@@ -405,7 +405,7 @@ def test_student_import_rejects_non_utf8_csv_without_database_access(client, mon
     test_client, users = client
     authenticate(test_client, users, "admin")
     monkeypatch.setattr(
-        edutrack, "get_conn",
+        edutrack.routes, "get_conn",
         lambda: (_ for _ in ()).throw(AssertionError("invalid CSV must not access the database")),
     )
 
@@ -426,7 +426,7 @@ def test_student_import_inserts_a_valid_row(client, monkeypatch):
     test_client, users = client
     authenticate(test_client, users, "admin")
     connection = FakeConnection(one_results=[None])
-    monkeypatch.setattr(edutrack, "get_conn", lambda: connection)
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
 
     response = test_client.post(
         "/students/import",
@@ -465,8 +465,8 @@ def test_student_import_rolls_back_a_row_when_its_audit_write_fails(client, monk
     authenticate(test_client, users, "admin")
     connection = FakeConnection(one_results=[None])
     connection.fake_cursor = FailingAuditCursor(one_results=[None])
-    monkeypatch.setattr(edutrack, "get_conn", lambda: connection)
-    monkeypatch.setattr(edutrack, "log_db_error", lambda exc: "test-ref")
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
+    monkeypatch.setattr(edutrack.routes, "log_db_error", lambda exc: "test-ref")
 
     response = test_client.post(
         "/students/import",
@@ -495,7 +495,7 @@ def test_student_edit_writes_audit_event_without_personal_data(client, monkeypat
     test_client, users = client
     authenticate(test_client, users, "admin")
     connection = FakeConnection()
-    monkeypatch.setattr(edutrack, "get_conn", lambda: connection)
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
 
     response = test_client.post(
         "/students/9/edit",
@@ -531,7 +531,7 @@ def test_student_creation_writes_audit_event_without_personal_data(client, monke
     test_client, users = client
     authenticate(test_client, users, "admin")
     connection = FakeConnection()
-    monkeypatch.setattr(edutrack, "get_conn", lambda: connection)
+    monkeypatch.setattr(edutrack.routes, "get_conn", lambda: connection)
 
     response = test_client.post(
         "/add-student",
@@ -570,7 +570,7 @@ def test_student_creation_writes_audit_event_without_personal_data(client, monke
 def test_missing_csrf_token_rejects_login_before_database_access(client, monkeypatch):
     test_client, _ = client
     monkeypatch.setattr(
-        edutrack, "get_conn",
+        edutrack.routes, "get_conn",
         lambda: (_ for _ in ()).throw(AssertionError("CSRF rejection must happen first")),
     )
 
@@ -666,16 +666,16 @@ def test_daily_backup_uses_restricted_option_file_and_removes_it(client, monkeyp
         def wait(self):
             return self.returncode
 
-    monkeypatch.setattr(edutrack, "BACKUP_FOLDER", str(backup_folder))
-    monkeypatch.setattr(edutrack, "create_secure_option_file", lambda: str(option_file))
-    monkeypatch.setattr(edutrack.keyring, "get_password", lambda *args: "backup-test-passphrase")
+    monkeypatch.setattr(edutrack.backup, "BACKUP_FOLDER", str(backup_folder))
+    monkeypatch.setattr(edutrack.backup, "create_secure_option_file", lambda: str(option_file))
+    monkeypatch.setattr(edutrack.backup.keyring, "get_password", lambda *args: "backup-test-passphrase")
     monkeypatch.setattr(edutrack.subprocess, "Popen", FakeProcess)
     monkeypatch.setenv("DB_HOST", "localhost")
     monkeypatch.setenv("DB_USERNAME", "school_app")
     monkeypatch.setenv("DB_DATABASE", "school_db")
     monkeypatch.setenv("DB_PASSWORD", "must-not-appear-in-process-arguments")
 
-    edutrack.run_daily_backup()
+    edutrack.backup.run_daily_backup()
 
     command = commands[0]
     assert command[1] == f"--defaults-extra-file={option_file}"
@@ -706,15 +706,15 @@ def test_daily_backup_removes_partial_output_and_option_file_on_dump_failure(
         def wait(self):
             return self.returncode
 
-    monkeypatch.setattr(edutrack, "BACKUP_FOLDER", str(backup_folder))
-    monkeypatch.setattr(edutrack, "create_secure_option_file", lambda: str(option_file))
-    monkeypatch.setattr(edutrack.keyring, "get_password", lambda *args: "backup-test-passphrase")
+    monkeypatch.setattr(edutrack.backup, "BACKUP_FOLDER", str(backup_folder))
+    monkeypatch.setattr(edutrack.backup, "create_secure_option_file", lambda: str(option_file))
+    monkeypatch.setattr(edutrack.backup.keyring, "get_password", lambda *args: "backup-test-passphrase")
     monkeypatch.setattr(edutrack.subprocess, "Popen", FailedProcess)
     monkeypatch.setenv("DB_HOST", "localhost")
     monkeypatch.setenv("DB_USERNAME", "school_app")
     monkeypatch.setenv("DB_DATABASE", "school_db")
 
-    edutrack.run_daily_backup()
+    edutrack.backup.run_daily_backup()
 
     assert "Backup failed:" in capsys.readouterr().out
     assert not option_file.exists()

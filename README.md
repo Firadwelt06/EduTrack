@@ -91,6 +91,33 @@ python -m pip install -r requirements-dev.txt
 python -m pytest
 ```
 
+The test suite uses mocked database connections by default. To verify the
+upgrade path against MySQL, create an empty, disposable schema named with the
+`edutrack_test_` prefix and grant the migration account privileges only on
+that schema. The integration test creates a legacy `users` table, verifies
+that migration `0001` adds the expected schema without changing existing user
+data, and removes only the tables it created.
+
+```sql
+CREATE DATABASE edutrack_test_v04;
+CREATE USER 'edutrack_test_migrator'@'localhost'
+  IDENTIFIED BY 'use-a-unique-test-secret';
+GRANT SELECT, INSERT, CREATE, ALTER, DROP
+ON edutrack_test_v04.* TO 'edutrack_test_migrator'@'localhost';
+```
+
+Set `DB_MIGRATION_USERNAME` and `DB_MIGRATION_PASSWORD` to this test account
+and run the check with the test schema selected explicitly:
+
+```powershell
+$env:EDUTRACK_MYSQL_TEST_DATABASE = "edutrack_test_v04"
+python -m pytest tests\test_mysql_migration_integration.py -q
+```
+
+Do not point the integration test at a production or non-disposable database.
+It fails unless the configured schema is empty and its name starts with
+`edutrack_test_`.
+
 Tests use an isolated test-only Flask secret and mocked database connections.
 Do not point test runs at a school database.
 
@@ -265,19 +292,31 @@ python app.py
 
 ```
 EduTrack/
-├── app.py                       # Main Flask application
+├── app.py                       # WSGI/development entry point
+├── edutrack/
+│   ├── factory.py               # Flask application factory
+│   ├── config.py                # Environment and logging configuration
+│   ├── extensions.py            # Flask extension instances
+│   ├── routes.py                # HTTP routes and authentication integration
+│   ├── domain.py                # Shared validation and domain helpers
+│   └── backup.py                # Encrypted backup operations
+├── database/
+│   ├── connection.py            # Runtime and migration connections
+│   ├── migrations/              # Ordered schema migrations
+│   └── schema.sql               # New-install bootstrap schema
 ├── migrate_password_hashing.py  # One-time SHA256 -> scrypt migration
 ├── setup_backup_encryption.py   # One-time backup passphrase setup
 ├── decrypt_backup.py            # Backup restore/verification tool (writes plaintext)
 ├── verify_latest_backup.py      # Scheduled integrity check (in-memory only)
-├── database/
-│   └── schema.sql               # Table structure only, no data
 ├── templates/                   # Jinja2 templates
 ├── backups/                     # Encrypted daily backups (gitignored)
 ├── logs/                        # Rotating application logs (gitignored)
 ├── .env.example                 # Template for required environment variables
 └── requirements.txt             # Pinned application dependencies
 ```
+
+The app can also be created by WSGI hosts and tests with
+`from edutrack.factory import create_app`.
 
 ## Known Limitations / In Progress
 

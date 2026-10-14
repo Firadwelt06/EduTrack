@@ -66,11 +66,15 @@ authorization or data-integrity defect remains.
 - Add consistent connection cleanup, transaction boundaries, and explicit
   error reporting.
 
-**Progress:** MySQL connection creation is separated into a database module;
-an ordered migration runner and initial retry-safe migration are available
-through `manage.py`. The bootstrap schema is now idempotent and no longer
-drops existing tables. App-factory/routes modularization and live MySQL
-upgrade verification remain outstanding.
+**Progress:** Flask app creation, configuration, extensions, routes, domain
+helpers, backup operations, and MySQL access are separated into modules while
+the existing route endpoints and behavior remain covered by regression tests.
+An ordered migration runner and initial retry-safe migration are available
+through `manage.py`; the bootstrap schema is idempotent and no longer drops
+existing tables. The opt-in MySQL integration test verifies a legacy
+installation upgrade while preserving existing user data. It requires an
+empty disposable MySQL schema and has not yet been run in this environment,
+so the live-upgrade acceptance gate remains outstanding.
 
 **Acceptance:** A new database can be created and upgraded through migrations;
 an existing installation has a documented, tested upgrade path.
