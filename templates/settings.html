@@ -31,11 +31,11 @@
 </div>
 
 {% if error %}
-<div class="alert alert-error">{{ error }}</div>
+<div class="alert alert-error" role="alert">{{ error }}</div>
 {% endif %}
 
 {% if success %}
-<div class="alert alert-success">{{ success }}</div>
+<div class="alert alert-success" role="status">{{ success }}</div>
 {% endif %}
 
 <!-- Tabs -->
@@ -65,8 +65,8 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="add_year">
             <div class="form-group">
-                <label>Year Name</label>
-                <input type="text" name="year_name" placeholder="e.g. 2026-2027" required>
+                <label for="year-name">Year Name</label>
+                <input id="year-name" type="text" name="year_name" maxlength="20" placeholder="e.g. 2026-2027" required>
             </div>
             <div class="form-group" style="display:flex; align-items:center; gap:10px;">
                 <input type="checkbox" name="is_current" id="is_current" style="width:auto;">
@@ -83,8 +83,8 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="add_semester">
             <div class="form-group">
-                <label>Academic Year</label>
-                <select name="year_id" required>
+                <label for="semester-year">Academic Year</label>
+                <select id="semester-year" name="year_id" required>
                     <option value="">Select year</option>
                     {% for year in academic_years %}
                     <option value="{{ year['year_id'] }}">{{ year['year_name'] }}</option>
@@ -92,12 +92,12 @@
                 </select>
             </div>
             <div class="form-group">
-                <label>Semester Name</label>
-                <input type="text" name="semester_name" placeholder="e.g. Fall" required>
+                <label for="semester-name">Semester Name</label>
+                <input id="semester-name" type="text" name="semester_name" maxlength="20" placeholder="e.g. Fall" required>
             </div>
             <div class="form-group">
-                <label>Order</label>
-                <select name="semester_order" required>
+                <label for="semester-order">Order</label>
+                <select id="semester-order" name="semester_order" required>
                     <option value="1">1 — First Semester</option>
                     <option value="2">2 — Second Semester</option>
                     <option value="3">3 — Third Semester</option>
@@ -214,21 +214,21 @@
             <input type="hidden" name="action" value="add_teacher">
             <div class="two-col">
                 <div class="form-group">
-                    <label>First Name</label>
-                    <input type="text" name="fname" placeholder="e.g. John" required>
+                    <label for="new-teacher-first">First Name</label>
+                    <input id="new-teacher-first" type="text" name="fname" maxlength="50" autocomplete="given-name" placeholder="e.g. John" required>
                 </div>
                 <div class="form-group">
-                    <label>Last Name</label>
-                    <input type="text" name="lname" placeholder="e.g. Smith" required>
+                    <label for="new-teacher-last">Last Name</label>
+                    <input id="new-teacher-last" type="text" name="lname" maxlength="50" autocomplete="family-name" placeholder="e.g. Smith" required>
                 </div>
             </div>
             <div class="form-group">
-                <label>Email</label>
-                <input type="email" name="email" placeholder="e.g. john.smith@school.com" required>
+                <label for="new-teacher-email">Email</label>
+                <input id="new-teacher-email" type="email" name="email" maxlength="100" autocomplete="email" placeholder="e.g. john.smith@school.com" required>
             </div>
             <div class="form-group">
-                <label>Hire Date</label>
-                <input type="date" name="hire_date" required>
+                <label for="new-teacher-hire-date">Hire Date</label>
+                <input id="new-teacher-hire-date" type="date" name="hire_date" required>
             </div>
             <button type="submit" class="btn btn-primary">Add Teacher</button>
         </form>
@@ -247,26 +247,49 @@
     <table>
         <thead>
             <tr>
-                <th>Name</th>
+                <th scope="col">Teacher</th>
                 <th>Email</th>
                 <th>Hire Date</th>
-                <th>Action</th>
+                <th>Save</th>
             </tr>
         </thead>
         <tbody>
                 {% for teacher in teachers %}
                 <tr>
-                    <td><strong>{{ teacher['first_name'] }} {{ teacher['last_name'] }}</strong></td>
-                    <td>{{ teacher['email'] }}</td>
-                    <td>{{ teacher['hire_date'] }}</td>
                     <td>
+                        <form id="teacher-form-{{ teacher['teacher_id'] }}" method="POST"
+                              action="/settings?tab=teachers">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="update_teacher">
+                            <input type="hidden" name="teacher_id" value="{{ teacher['teacher_id'] }}">
+                        </form>
+                        <label class="visually-hidden" for="teacher-first-{{ teacher['teacher_id'] }}">First name</label>
+                        <input id="teacher-first-{{ teacher['teacher_id'] }}" form="teacher-form-{{ teacher['teacher_id'] }}"
+                               type="text" name="fname" value="{{ teacher['first_name'] }}" maxlength="50" required>
+                        <label class="visually-hidden" for="teacher-last-{{ teacher['teacher_id'] }}">Last name</label>
+                        <input id="teacher-last-{{ teacher['teacher_id'] }}" form="teacher-form-{{ teacher['teacher_id'] }}"
+                               type="text" name="lname" value="{{ teacher['last_name'] }}" maxlength="50" required>
+                    </td>
+                    <td>
+                        <label class="visually-hidden" for="teacher-email-{{ teacher['teacher_id'] }}">Email</label>
+                        <input id="teacher-email-{{ teacher['teacher_id'] }}" form="teacher-form-{{ teacher['teacher_id'] }}"
+                               type="email" name="email" value="{{ teacher['email'] }}" maxlength="100" required>
+                    </td>
+                    <td>
+                        <label class="visually-hidden" for="teacher-hire-date-{{ teacher['teacher_id'] }}">Hire date</label>
+                        <input id="teacher-hire-date-{{ teacher['teacher_id'] }}" form="teacher-form-{{ teacher['teacher_id'] }}"
+                               type="date" name="hire_date"
+                               value="{{ teacher['hire_date'].strftime('%Y-%m-%d') if teacher['hire_date'] else '' }}" required>
+                    </td>
+                    <td>
+                        <button type="submit" form="teacher-form-{{ teacher['teacher_id'] }}" class="btn btn-primary">Save</button>
                         <form method="POST"
                               action="/settings/delete/teacher/{{ teacher['teacher_id'] }}"
                               onsubmit="return confirm('Delete this teacher? This cannot be undone.')">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn"
                                     style="padding:4px 12px; font-size:12px; background:#fdecea; color:#e74c3c;">
-                                Delete
+                                Delete <span class="visually-hidden">{{ teacher['first_name'] }} {{ teacher['last_name'] }}</span>
                             </button>
                         </form>
                     </td>
@@ -288,20 +311,20 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="add_course">
             <div class="form-group">
-                <label>Course Name</label>
-                <input type="text" name="course_name" placeholder="e.g. Biology" required>
+                <label for="new-course-name">Course Name</label>
+                <input id="new-course-name" type="text" name="course_name" maxlength="100" placeholder="e.g. Biology" required>
             </div>
             <div class="form-group">
-                <label>Description <span style="color:#bbb; font-weight:400;">(optional)</span></label>
-                <input type="text" name="description" placeholder="Brief description">
+                <label for="new-course-description">Description <span style="color:#bbb; font-weight:400;">(optional)</span></label>
+                <input id="new-course-description" type="text" name="description" placeholder="Brief description">
             </div>
             <div class="form-group">
-                <label>Capacity</label>
-                <input type="number" name="capacity" min="1" max="200" value="30" required>
+                <label for="new-course-capacity">Capacity</label>
+                <input id="new-course-capacity" type="number" name="capacity" min="1" max="200" value="30" required>
             </div>
             <div class="form-group">
-                <label>Assign Teacher</label>
-                <select name="teacher_id" required>
+                <label for="new-course-teacher">Assign Teacher</label>
+                <select id="new-course-teacher" name="teacher_id" required>
                     <option value="">Select teacher</option>
                     {% for teacher in teachers %}
                     <option value="{{ teacher['teacher_id'] }}">
@@ -326,27 +349,58 @@
     <table>
         <thead>
             <tr>
-                <th>Course Name</th>
-                <th>Description</th>
-                <th>Capacity</th>
-                <th>Teacher</th>
+                <th scope="col">Course</th>
+                <th scope="col">Description</th>
+                <th scope="col">Capacity</th>
+                <th scope="col">Teacher</th>
+                <th scope="col">Action</th>
             </tr>
         </thead>
         <tbody>
                 {% for course in courses %}
                 <tr>
-                    <td><strong>{{ course['course_name'] }}</strong></td>
-                    <td>{{ course['description'] or '—' }}</td>
-                    <td>{{ course['capacity'] }}</td>
-                    <td>{{ course['teacher'] }}</td>
                     <td>
+                        <form id="course-form-{{ course['course_id'] }}" method="POST"
+                              action="/settings?tab=courses">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="update_course">
+                            <input type="hidden" name="course_id" value="{{ course['course_id'] }}">
+                        </form>
+                        <label class="visually-hidden" for="course-name-{{ course['course_id'] }}">Course name</label>
+                        <input id="course-name-{{ course['course_id'] }}" form="course-form-{{ course['course_id'] }}"
+                               type="text" name="course_name" value="{{ course['course_name'] }}" maxlength="100" required>
+                    </td>
+                    <td>
+                        <label class="visually-hidden" for="course-description-{{ course['course_id'] }}">Description</label>
+                        <input id="course-description-{{ course['course_id'] }}" form="course-form-{{ course['course_id'] }}"
+                               type="text" name="description" value="{{ course['description'] or '' }}">
+                    </td>
+                    <td>
+                        <label class="visually-hidden" for="course-capacity-{{ course['course_id'] }}">Capacity</label>
+                        <input id="course-capacity-{{ course['course_id'] }}" form="course-form-{{ course['course_id'] }}"
+                               type="number" name="capacity" min="1" max="200" value="{{ course['capacity'] }}" required>
+                    </td>
+                    <td>
+                        <label class="visually-hidden" for="course-teacher-{{ course['course_id'] }}">Teacher</label>
+                        <select id="course-teacher-{{ course['course_id'] }}" form="course-form-{{ course['course_id'] }}"
+                                name="teacher_id" required>
+                            {% for teacher in teachers %}
+                            <option value="{{ teacher['teacher_id'] }}"
+                                    {% if teacher['teacher_id'] == course['teacher_id'] %}selected{% endif %}>
+                                {{ teacher['first_name'] }} {{ teacher['last_name'] }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td>
+                        <button type="submit" form="course-form-{{ course['course_id'] }}" class="btn btn-primary">Save</button>
                         <form method="POST"
                               action="/settings/delete/course/{{ course['course_id'] }}"
                               onsubmit="return confirm('Delete this course? This cannot be undone.')">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn"
                                     style="padding:4px 12px; font-size:12px; background:#fdecea; color:#e74c3c;">
-                                Delete
+                                Delete <span class="visually-hidden">{{ course['course_name'] }}</span>
                             </button>
                         </form>
                     </td>
@@ -368,17 +422,17 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="change_password">
             <div class="form-group">
-                <label>Current Password</label>
-                <input type="password" name="current_password" required>
+                <label for="current-password">Current Password</label>
+                <input id="current-password" type="password" name="current_password" autocomplete="current-password" required>
             </div>
             <div class="form-group">
-                <label>New Password</label>
-                <input type="password" name="new_password" 
+                <label for="new-password">New Password</label>
+                <input id="new-password" type="password" name="new_password" autocomplete="new-password"
                        placeholder="Minimum 12 characters" required>
             </div>
             <div class="form-group">
-                <label>Confirm New Password</label>
-                <input type="password" name="confirm_password" required>
+                <label for="confirm-password">Confirm New Password</label>
+                <input id="confirm-password" type="password" name="confirm_password" autocomplete="new-password" required>
             </div>
             <button type="submit" class="btn btn-primary">Change Password</button>
         </form>

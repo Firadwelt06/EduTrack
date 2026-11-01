@@ -17,6 +17,39 @@
             color: #333;
         }
 
+        .skip-link {
+            position: absolute;
+            z-index: 10;
+            top: -100px;
+            left: 12px;
+            padding: 10px 14px;
+            background: #fff;
+            color: #1a1a2e;
+            border: 2px solid #1a1a2e;
+            border-radius: 6px;
+        }
+
+        .skip-link:focus { top: 8px; }
+
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        :focus-visible {
+            outline: 3px solid #0f3460;
+            outline-offset: 3px;
+        }
+
+        button, input, select, textarea { font: inherit; }
+
         /* Navigation */
         nav {
             background-color: #1a1a2e;
@@ -25,6 +58,7 @@
             align-items: center;
             height: 60px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            overflow-x: auto;
         }
 
         nav .brand {
@@ -48,6 +82,11 @@
         nav a:hover {
             color: #fff;
             border-bottom: 2px solid #e94560;
+        }
+
+        nav a[aria-current="page"] {
+            color: #fff;
+            border-bottom-color: #e94560;
         }
 
         /* Main content area */
@@ -81,6 +120,7 @@
             padding: 25px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.07);
             margin-bottom: 25px;
+            overflow-x: auto;
         }
 
         .card h2 {
@@ -137,6 +177,14 @@
             gap: 15px;
         }
 
+        .filter-form {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            width: 100%;
+        }
+
         .filter-bar label {
             font-size: 13px;
             color: #888;
@@ -155,9 +203,33 @@
             transition: border 0.2s;
         }
 
+        .filter-form input {
+            min-width: min(220px, 100%);
+            padding: 8px 12px;
+            border: 1px solid #bbb;
+            border-radius: 8px;
+        }
+
         .filter-bar select:focus {
             border-color: #e94560;
         }
+
+        .btn-secondary {
+            background: #e8eaf0;
+            color: #1a1a2e;
+        }
+
+        .btn-danger {
+            background: #fdecea;
+            color: #a32132;
+        }
+
+        .table-scroll {
+            overflow-x: auto;
+            max-width: 100%;
+        }
+
+        .alert[role="alert"] { border-left: 4px solid currentColor; }
 
         /* Tables */
         table {
@@ -304,35 +376,66 @@
             color: #bbb;
             font-size: 14px;
         }
+
+        @media (max-width: 760px) {
+            nav {
+                height: auto;
+                min-height: 60px;
+                padding: 10px 16px;
+                gap: 4px 16px;
+                flex-wrap: wrap;
+            }
+
+            nav .brand { margin-right: 12px; }
+            nav a { margin-right: 8px; white-space: nowrap; }
+            nav a:last-child { margin-left: auto !important; }
+            .container { margin: 20px auto; padding: 0 12px; }
+            .card { padding: 18px; }
+            .filter-bar { align-items: stretch; padding: 14px; }
+            .filter-form > * { max-width: 100%; }
+            .two-col, .metrics-grid { grid-template-columns: 1fr; gap: 12px; }
+            .metric-card .value { font-size: 30px; }
+            .empty-state { padding: 28px 12px; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                scroll-behavior: auto !important;
+                transition-duration: 0.01ms !important;
+                animation-duration: 0.01ms !important;
+            }
+        }
     </style>
 </head>
 <body>
-    <nav>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <nav aria-label="Main navigation">
         <a href="/" class="brand">🏫 SchoolDB</a>
-        <a href="/">Dashboard</a>
+        <a href="/" {% if request.endpoint == 'dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
         {% if current_user.role in ['admin', 'teacher'] %}
-        <a href="/students">Students</a>
+        <a href="/students" {% if request.endpoint in ['students', 'student_detail', 'add_student', 'edit_student', 'import_students'] %}aria-current="page"{% endif %}>Students</a>
         {% endif %}
-        <a href="/courses">Courses</a>
+        <a href="/courses" {% if request.endpoint in ['courses', 'course_detail'] %}aria-current="page"{% endif %}>Courses</a>
         {% if current_user.role in ['admin', 'teacher'] %}
-        <a href="/grades">Grades</a>
+        <a href="/grades" {% if request.endpoint == 'grades' %}aria-current="page"{% endif %}>Grades</a>
         {% endif %}
         {% if current_user.role == 'admin' %}
-        <a href="/settings">Settings</a>
-        <a href="/audit-log">Audit Log</a>
+        <a href="/settings" {% if request.endpoint == 'settings' %}aria-current="page"{% endif %}>Settings</a>
+        <a href="/audit-log" {% if request.endpoint == 'audit_log' %}aria-current="page"{% endif %}>Audit Log</a>
         {% endif %}
         <a href="/logout" style="margin-left:auto; color:#e94560">Logout</a>
     </nav>
     
-    <div class="container">
+    <main id="main-content" class="container">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
-                <div class="alert alert-{{ category }}">{{ message }}</div>
+                <div class="alert alert-{{ category }}"
+                     role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</div>
                 {% endfor %}
             {% endif %}
         {% endwith %}
         {% block content %}{% endblock %}
-    </div>
+    </main>
 </body>
 </html>

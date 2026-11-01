@@ -2,8 +2,13 @@
 
 A Flask + MySQL school database management system for tracking students,
 courses, enrollments, and grades across academic years and semesters.
-Built as a hands-on security/DBA learning project — the goal is a genuinely
-production-conscious app, not just a portfolio demo.
+Built as a database-administration learning project and portfolio
+demonstration.
+
+**Scope:** EduTrack currently targets one school's self-hosted installation.
+It is not a multi-tenant service, has not been tested with a real school, and
+is not production-validated. Any future operational use would require
+deployment-specific testing and review.
 
 ## Features
 
@@ -36,14 +41,23 @@ production-conscious app, not just a portfolio demo.
   a generic message with a short reference code instead of raw exception
   text — closing an information-disclosure gap without losing debuggability.
 - **Audit trail** for grade changes, enrollments, and deletions (academic
-  years, semesters, teachers, courses): who did it, what changed (old/new
-  values where relevant), and when — viewable by admins at `/audit-log`,
-  filterable by entity type.
+  years/semesters/teachers/courses), plus student creation, edits, and CSV
+  imports: who did it, what kind of change occurred, and when — viewable by
+  admins at `/audit-log`, filterable by entity type. Student audit details
+  record changed field names rather than copying sensitive field values.
 - **CSV student import** hardened against more than just a bad file
   extension: content is sanity-checked against expected headers before
   parsing, fields are sanitized against spreadsheet formula injection
   (e.g. `=HYPERLINK(...)`), and request size is capped to prevent memory
   exhaustion from an oversized upload.
+- **Staff workflow improvements** include editable teacher/course records,
+  audited enrollment removal, capacity-checked enrollment with per-semester
+  uniqueness, searchable course listings, and role-scoped student/course CSV
+  exports. Student course catalogs and exports are limited to courses the
+  student is enrolled in for the selected semester.
+- **Accessible responsive baseline** includes a skip link, semantic main
+  content and navigation, visible keyboard focus, labelled core forms and
+  filters, responsive navigation/cards, and reduced-motion support.
 - **Encrypted-at-rest daily backups**: `mysqldump` output is streamed
   straight into AES-256-CTR encryption with an HMAC-SHA256 integrity tag
   (encrypt-then-MAC) — plaintext SQL never touches disk. The encryption
@@ -55,10 +69,16 @@ production-conscious app, not just a portfolio demo.
 
 ## Tech Stack
 
-- Python 3 / Flask
-- MySQL (developed against MySQL Server 8.0)
+- Python 3.14 / Flask 3.1
+- MySQL Server 8.0 (developed against 8.0.44; not yet validated across a
+  supported-version matrix)
 - Flask-Login, Flask-WTF, Flask-Limiter, werkzeug
 - `cryptography` + `keyring` for backup encryption
+
+The automated test suite runs on Windows with Python 3.14 and does not require
+a MySQL server; database calls are mocked in route tests. This validates
+application behavior in isolation, not a production deployment or live MySQL
+upgrade.
 
 ## Setup
 
@@ -72,6 +92,43 @@ python -m venv .venv
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
+
+For development and tests, install the additional test dependencies:
+
+```powershell
+python -m pip install -r requirements-dev.txt
+python -m pytest
+```
+
+The test suite uses mocked database connections by default. To verify the
+upgrade path against MySQL, create an empty, disposable schema named with the
+`edutrack_test_` prefix and grant the migration account privileges only on
+that schema. The integration test creates a legacy `users` table, verifies
+that migration `0001` adds the expected schema without changing existing user
+data, and removes only the tables it created.
+
+```sql
+CREATE DATABASE edutrack_test_v04;
+CREATE USER 'edutrack_test_migrator'@'localhost'
+  IDENTIFIED BY 'use-a-unique-test-secret';
+GRANT SELECT, INSERT, CREATE, ALTER, DROP
+ON edutrack_test_v04.* TO 'edutrack_test_migrator'@'localhost';
+```
+
+Set `DB_MIGRATION_USERNAME` and `DB_MIGRATION_PASSWORD` to this test account
+and run the check with the test schema selected explicitly:
+
+```powershell
+$env:EDUTRACK_MYSQL_TEST_DATABASE = "edutrack_test_v04"
+python -m pytest tests\test_mysql_migration_integration.py -q
+```
+
+Do not point the integration test at a production or non-disposable database.
+It fails unless the configured schema is empty and its name starts with
+`edutrack_test_`.
+
+Tests use an isolated test-only Flask secret and mocked database connections.
+Do not point test runs at a school database.
 
 ### 2. Configure environment variables
 
@@ -87,7 +144,9 @@ FLASK_DEBUG=false
 ```
 
 `SECRET_KEY` should be a long random string (used by Flask for session
-signing) — don't reuse the placeholder from `.env.example`.
+signing). Generate one with
+`python -c "import secrets; print(secrets.token_hex(32))"` and do not reuse
+the placeholder from `.env.example`.
 
 `FLASK_DEBUG` controls two things at once: Flask's interactive debugger, and
 whether session cookies get the `Secure` flag. Only set it to `true` for
@@ -97,6 +156,10 @@ remote-code-execution risk if it's ever reachable by anyone but you.
 
 ### 3. Create the database and import the schema
 
+This bootstrap schema creates missing tables but does not alter existing
+tables or insert sample records. It is suitable for a new, empty database;
+existing installations should use the migration command below.
+
 ```sql
 CREATE DATABASE school_db;
 ```
@@ -105,7 +168,55 @@ CREATE DATABASE school_db;
 mysql -u your_username -p school_db < database\schema.sql
 ```
 
-### 4. Create the first admin account
+### 4. Configure migration credentials and apply schema migrations
+
+The application runtime account needs data access but should not have
+schema-changing privileges. Create it separately and grant only the CRUD
+permissions used by the application:
+
+```sql
+CREATE USER 'school_app'@'localhost' IDENTIFIED BY 'use-a-unique-secret';
+GRANT SELECT, INSERT, UPDATE, DELETE
+ON school_db.* TO 'school_app'@'localhost';
+```
+
+The `UPDATE` permission is required for login backoff and normal record
+updates. `DB_USERNAME` and `DB_PASSWORD` in `.env` must match this account.
+The encrypted backup command also uses the runtime account and requires read
+access to the database.
+
+Create a separate migration account with schema-changing privileges:
+
+```sql
+CREATE USER 'school_migrator'@'localhost' IDENTIFIED BY 'use-a-unique-secret';
+GRANT SELECT, INSERT, CREATE, ALTER, INDEX
+ON school_db.* TO 'school_migrator'@'localhost';
+```
+
+Set `DB_MIGRATION_USERNAME` and `DB_MIGRATION_PASSWORD` in `.env` to that
+account, then apply pending changes:
+
+```powershell
+python manage.py db upgrade
+python manage.py db current
+```
+
+The migration runner applies ordered, retry-safe migrations and records each
+version in `schema_migrations`. It adds the login-backoff columns and audit
+table without dropping existing records. Migration `0002` allows the same
+student to enroll in the same course in different semesters while retaining
+uniqueness within a semester.
+
+Future schema changes should be added as the next
+`database/migrations/vNNNN_descriptive_name.py` file with an
+`upgrade(cursor)` function. Keep migrations additive and safe to retry:
+MySQL may implicitly commit DDL before a migration is recorded.
+
+For an existing installation, take and verify a backup first. Do **not**
+re-import the bootstrap schema; set the migration credentials and run
+`python manage.py db upgrade`.
+
+### 5. Create the first admin account
 
 The app has no public registration route by design — accounts are
 provisioned directly. Generate a proper password hash:
@@ -126,7 +237,7 @@ HaveIBeenPwned check only runs through the app's own change-password flow,
 not this manual insert, so pick something that isn't a known breached
 password anyway.
 
-### 5. (Optional) Enable encrypted backups
+### 6. (Optional) Enable encrypted backups
 
 Requires `mysqldump.exe` — update the `MYSQLDUMP_PATH` constant in `app.py`
 if your MySQL install location differs from the default. Then seed the
@@ -135,6 +246,20 @@ backup encryption passphrase once per machine:
 ```powershell
 python setup_backup_encryption.py
 ```
+
+The MySQL account used by the app needs read access for dumps in addition to
+the privileges required for the app itself. A database administrator can
+grant the backup-specific permissions with:
+
+```sql
+GRANT SELECT, SHOW VIEW, TRIGGER
+ON school_db.* TO 'school_app'@'localhost';
+```
+
+Replace the database, username, and MySQL host account with the values used
+by your installation. The backup command uses a temporary, ACL-restricted
+MySQL option file instead of placing the database password on the command
+line, and uses a single transaction for a consistent InnoDB dump.
 
 This stores the passphrase in Windows Credential Manager. Backups run
 automatically on app startup (`run_daily_backup()`), skipping if a backup
@@ -168,7 +293,7 @@ well-formed — pair it with an occasional full manual restore into a scratch
 database, done by a human, on whatever cadence you're comfortable with
 (monthly is a reasonable starting point).
 
-### 6. Run the app
+### 7. Run the app
 
 ```powershell
 python app.py
@@ -178,23 +303,36 @@ python app.py
 
 ```
 EduTrack/
-├── app.py                       # Main Flask application
+├── app.py                       # WSGI/development entry point
+├── edutrack/
+│   ├── factory.py               # Flask application factory
+│   ├── config.py                # Environment and logging configuration
+│   ├── extensions.py            # Flask extension instances
+│   ├── routes.py                # HTTP routes and authentication integration
+│   ├── domain.py                # Shared validation and domain helpers
+│   └── backup.py                # Encrypted backup operations
+├── database/
+│   ├── connection.py            # Runtime and migration connections
+│   ├── migrations/              # Ordered schema migrations
+│   └── schema.sql               # New-install bootstrap schema
 ├── migrate_password_hashing.py  # One-time SHA256 -> scrypt migration
 ├── setup_backup_encryption.py   # One-time backup passphrase setup
 ├── decrypt_backup.py            # Backup restore/verification tool (writes plaintext)
 ├── verify_latest_backup.py      # Scheduled integrity check (in-memory only)
-├── database/
-│   └── schema.sql               # Table structure only, no data
 ├── templates/                   # Jinja2 templates
 ├── backups/                     # Encrypted daily backups (gitignored)
 ├── logs/                        # Rotating application logs (gitignored)
 ├── .env.example                 # Template for required environment variables
-└── requirements.txt
+└── requirements.txt             # Pinned application dependencies
 ```
 
-## Known Limitations / In Progress
+The app can also be created by WSGI hosts and tests with
+`from edutrack.factory import create_app`.
 
-This project is being built and audited incrementally. Currently open items:
+## Known Limitations
+
+This is a completed learning project, not a deployment validated with a
+school. Known limitations include:
 
 - Backup restore-testing currently relies on the automated integrity check
   plus a manually-scheduled full restore test — there's no fully automated
@@ -202,17 +340,13 @@ This project is being built and audited incrementally. Currently open items:
 - No CAPTCHA or similar friction on `/login` beyond IP rate limiting and
   per-account backoff — acceptable at current scale, worth revisiting if
   this is ever exposed to a wider audience.
-- Audit log currently covers grades, enrollments, and deletions
-  (years/semesters/teachers/courses) — student edits (`edit_student`) and
-  student creation/deletion are not yet audited.
 - Flask-Limiter's default storage is in-process memory, which resets on
   restart and wouldn't work correctly across multiple worker processes —
   fine for the current single-process deployment, but would need a shared
   backend (e.g. Redis) if that ever changes.
 
-This list is intentionally public — part of the point of this project is
-practicing security auditing in the open rather than presenting a polished
-facade.
+This list records current limitations; it is not a roadmap or a commitment
+to further development.
 
 ## AI Assistance Disclosure
 
