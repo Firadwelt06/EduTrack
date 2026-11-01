@@ -2,12 +2,13 @@
 
 A Flask + MySQL school database management system for tracking students,
 courses, enrollments, and grades across academic years and semesters.
-Built as a hands-on security/DBA learning project — the goal is a genuinely
-production-conscious app, not just a portfolio demo.
+Built as a database-administration learning project and portfolio
+demonstration.
 
 **Scope:** EduTrack currently targets one school's self-hosted installation.
-It is not a multi-tenant service and has not yet been declared production-ready.
-See the [versioned roadmap](ROADMAP.md) for the release gates toward 1.0.
+It is not a multi-tenant service, has not been tested with a real school, and
+is not production-validated. Any future operational use would require
+deployment-specific testing and review.
 
 ## Features
 
@@ -328,11 +329,10 @@ EduTrack/
 The app can also be created by WSGI hosts and tests with
 `from edutrack.factory import create_app`.
 
-## Known Limitations / In Progress
+## Known Limitations
 
-This project is being built and audited incrementally. See
-[ROADMAP.md](ROADMAP.md) for phased priorities and release acceptance gates.
-Current limitations include:
+This is a completed learning project, not a deployment validated with a
+school. Known limitations include:
 
 - Backup restore-testing currently relies on the automated integrity check
   plus a manually-scheduled full restore test — there's no fully automated
@@ -340,17 +340,13 @@ Current limitations include:
 - No CAPTCHA or similar friction on `/login` beyond IP rate limiting and
   per-account backoff — acceptable at current scale, worth revisiting if
   this is ever exposed to a wider audience.
-- Audit log currently covers grades, enrollments, and deletions
-  (years/semesters/teachers/courses) — student edits (`edit_student`) and
-  student creation/deletion are not yet audited.
 - Flask-Limiter's default storage is in-process memory, which resets on
   restart and wouldn't work correctly across multiple worker processes —
   fine for the current single-process deployment, but would need a shared
   backend (e.g. Redis) if that ever changes.
 
-This list is intentionally public — part of the point of this project is
-practicing security auditing in the open rather than presenting a polished
-facade.
+This list records current limitations; it is not a roadmap or a commitment
+to further development.
 
 ## AI Assistance Disclosure
 
